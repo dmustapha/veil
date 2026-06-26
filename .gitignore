@@ -1,0 +1,25 @@
+# secrets — never commit
+**/.env
+**/.env.*
+!**/.env.example
+
+# rust / foundry build output
+**/target/
+**/cache/
+**/out/
+**/broadcast/
+
+# node
+**/node_modules/
+
+# local Nethermind verifier clone (referenced via git dep; keep only the result note)
+spike/stellar-risc0-verifier/
+
+# generated proof bundle (produced in CI / by the prover)
+guest/proof.json
+
+# misc
+.DS_Store
+
+# foundry deps (reinstallable via forge install)
+**/lib/forge-std/
