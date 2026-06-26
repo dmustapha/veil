@@ -279,3 +279,16 @@ fn double_init_rejected() {
     );
     assert_eq!(res, Err(Ok(Error::AlreadyInitialized)));
 }
+
+// debug-p5: freshness guard — borrowing against a stale root (beyond MAX_BLOCK_AGE of the
+// newest posted checkpoint) is rejected. Closes the stale-root over-borrow gap from the audit.
+#[test]
+fn stale_checkpoint_rejected() {
+    let f = setup();
+    let root100 = b32(&f.env, 0xAB);
+    f.vault.post_checkpoint(&100u64, &root100);
+    f.vault.post_checkpoint(&500u64, &b32(&f.env, 0xCC)); // latest=500, age(100)=400 > 300
+    let j = journal(&f.env, &f.escrow_addr, 100, &root100, 2 * ETH_WEI, &b32(&f.env, 1), &b32(&f.env, 2));
+    let seal = digest_seal(&f.env, &j);
+    assert_eq!(f.vault.try_borrow(&seal, &j, &f.borrower), Err(Ok(Error::StaleCheckpoint)));
+}

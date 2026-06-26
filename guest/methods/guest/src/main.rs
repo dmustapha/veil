@@ -39,7 +39,18 @@ fn main() {
     verify_proof(state_root, account_key, Some(account_rlp), &account_nodes)
         .expect("account proof invalid");
 
-    // 2. Storage proof: the slot holds `amount` (RLP of the trimmed integer) under storageRoot.
+    // 2. Bind the slot to the hashlock: the ONLY slot we will read is `locks[H].amount`.
+    //    Solidity: base = keccak256(abi.encode(H, uint256(0))); amount lives at base + 1.
+    //    Without this, `amount_slot` is a free witness and a borrower could prove the threshold
+    //    against any slot of any account — minting an unbacked loan. This binding is what makes
+    //    the proof attest "locks[H].amount >= threshold" rather than "some slot >= threshold".
+    let mut slot_preimage = [0u8; 64];
+    slot_preimage[..32].copy_from_slice(&input.hashlock); // abi.encode(bytes32 H, uint256 0)
+    let base = U256::from_be_bytes::<32>(keccak256(slot_preimage).0);
+    let expected_slot = (base + U256::from(1u8)).to_be_bytes::<32>();
+    assert!(input.amount_slot == expected_slot, "amount_slot not bound to hashlock");
+
+    // 3. Storage proof: the bound slot holds `amount` (RLP of the trimmed integer) under storageRoot.
     let storage_root = B256::from(input.storage_hash);
     let slot_key = Nibbles::unpack(keccak256(input.amount_slot));
     let amount = U256::from(input.amount_wei);
