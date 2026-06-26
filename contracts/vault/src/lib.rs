@@ -25,6 +25,12 @@ use soroban_sdk::{
 const DAY_LEDGERS: u32 = 17_280;
 const BUMP_AMOUNT: u32 = 30 * DAY_LEDGERS;
 const BUMP_THRESHOLD: u32 = BUMP_AMOUNT - DAY_LEDGERS;
+/// Max age (in Ethereum blocks) of the checkpoint a borrow may prove against, vs the newest
+/// posted checkpoint. Stops borrowing against a stale root after collateral was withdrawn.
+/// ~300 Sepolia blocks (~1h at 12s/block).
+const MAX_BLOCK_AGE: u64 = 300;
+/// Max age (seconds) of the Reflector price used to size a loan.
+const MAX_PRICE_AGE_SECS: u64 = 86_400;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -44,6 +50,8 @@ pub enum Error {
     NotYetDue = 12,
     NoPrice = 13,
     LoanTooSmall = 14,
+    StaleCheckpoint = 15,
+    StalePrice = 16,
 }
 
 // ---- Reflector (SEP-40) minimal interface ----
@@ -98,6 +106,7 @@ pub struct Loan {
 enum DataKey {
     Config,
     Checkpoint(u64),     // block -> state_root
+    LatestBlock,         // highest checkpoint block posted (for freshness)
     Nullifier(BytesN<32>),
     Loan(BytesN<32>),    // H -> Loan
     Secret(BytesN<32>),  // H -> revealed S
@@ -142,6 +151,12 @@ impl VeilVault {
         let key = DataKey::Checkpoint(block);
         env.storage().persistent().set(&key, &state_root);
         env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
+        // Track the newest block for freshness checks in borrow().
+        let latest: u64 = env.storage().persistent().get(&DataKey::LatestBlock).unwrap_or(0);
+        if block > latest {
+            env.storage().persistent().set(&DataKey::LatestBlock, &block);
+            env.storage().persistent().extend_ttl(&DataKey::LatestBlock, BUMP_THRESHOLD, BUMP_AMOUNT);
+        }
         Ok(())
     }
 
@@ -172,6 +187,12 @@ impl VeilVault {
         if root != j.state_root {
             return Err(Error::CheckpointMismatch);
         }
+        // Freshness: reject borrowing against a stale root (collateral could have been withdrawn
+        // since). j.block must be within MAX_BLOCK_AGE of the newest posted checkpoint.
+        let latest: u64 = env.storage().persistent().get(&DataKey::LatestBlock).unwrap_or(j.block);
+        if latest.saturating_sub(j.block) > MAX_BLOCK_AGE {
+            return Err(Error::StaleCheckpoint);
+        }
         if j.threshold_wei < cfg.min_threshold_wei {
             return Err(Error::ThresholdTooLow);
         }
@@ -185,20 +206,19 @@ impl VeilVault {
             return Err(Error::LoanExists);
         }
 
-        // 5. Size the loan from the live Reflector price.
+        // 5. Size the loan from the live Reflector price (reject a stale price).
         let r = ReflectorClient::new(&env, &cfg.reflector);
         let px = r.lastprice(&cfg.reflector_asset).ok_or(Error::NoPrice)?;
+        if env.ledger().timestamp().saturating_sub(px.timestamp) > MAX_PRICE_AGE_SECS {
+            return Err(Error::StalePrice);
+        }
         let decimals = r.decimals();
         let principal = journal::size_loan(j.threshold_wei, px.price, decimals, cfg.ltv_bps);
         if principal <= 0 {
             return Err(Error::LoanTooSmall);
         }
 
-        // 6. Disburse real USDC from the vault to the borrower.
-        let usdc = token::TokenClient::new(&env, &cfg.usdc);
-        usdc.transfer(&env.current_contract_address(), &borrower, &principal);
-
-        // 7. Record loan + nullifier.
+        // 6. Record loan + nullifier BEFORE the transfer (checks-effects-interactions).
         let due = env.ledger().sequence() + cfg.term_ledgers;
         let loan = Loan {
             nullifier: j.nullifier.clone(),
@@ -211,6 +231,10 @@ impl VeilVault {
         };
         env.storage().persistent().set(&lk, &loan);
         env.storage().persistent().set(&nk, &true);
+
+        // 7. Disburse real USDC from the vault to the borrower (interaction last).
+        let usdc = token::TokenClient::new(&env, &cfg.usdc);
+        usdc.transfer(&env.current_contract_address(), &borrower, &principal);
         Self::bump(&env, &lk);
         Self::bump(&env, &nk);
         Ok(principal)

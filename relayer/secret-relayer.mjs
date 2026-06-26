@@ -14,9 +14,14 @@ const POLL_MS = 5_000;
 function getSecret(hashlock) {
   const h = hashlock.replace(/^0x/, "");
   const out = stellar(cfg.vault, ["get_secret", "--hashlock", h], { send: false });
-  // returns JSON: null, or a quoted hex string
-  const v = JSON.parse(out);
-  return v ? "0x" + String(v).replace(/^0x/, "") : null;
+  // The CLI may emit log lines around the value; find the JSON line defensively.
+  // get_secret returns `null` or a quoted 32-byte hex string (no 0x prefix).
+  for (const line of out.split("\n").map((l) => l.trim()).reverse()) {
+    if (line === "null") return null;
+    const m = line.match(/^"?(?:0x)?([0-9a-fA-F]{64})"?$/);
+    if (m) return "0x" + m[1];
+  }
+  return null; // not revealed yet (or unrecognized output) — keep polling
 }
 
 function unlockOnEthereum(secret) {

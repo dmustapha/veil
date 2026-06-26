@@ -82,7 +82,10 @@ fn main() {
         .prove_with_opts(env, VEIL_PROVE_ELF, &ProverOpts::groth16())
         .unwrap()
         .receipt;
-    let _ = receipt.verify(VEIL_PROVE_ID); // dev-mode receipts don't verify; real ones do
+    // Real receipts MUST verify before we ship the seal to Soroban; dev-mode receipts can't.
+    if std::env::var("RISC0_DEV_MODE").is_err() {
+        receipt.verify(VEIL_PROVE_ID).expect("real receipt failed to verify");
+    }
 
     let journal = receipt.journal.bytes.to_vec();
     assert_eq!(journal.len(), JOURNAL_LEN, "journal length");
