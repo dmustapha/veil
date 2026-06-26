@@ -1,0 +1,63 @@
+name: prove
+
+# Produces the REAL RISC Zero Groth16 proof for Veil on a free GitHub-hosted x86 runner
+# (16 GB RAM, the spec local Groth16 proving needs). No Bonsai key, no cost. The guest reads the
+# committed fixture (guest/fixtures), so this run needs no secrets and no live RPC.
+# The resulting proof.json (seal + image_id + journal) is uploaded as an artifact.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "guest/**"
+      - ".github/workflows/prove.yml"
+
+jobs:
+  groth16:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            guest/target
+          key: veil-prove-${{ hashFiles('guest/**/Cargo.toml') }}
+
+      - name: Install RISC Zero toolchain
+        run: |
+          curl -L https://risczero.com/install | bash
+          echo "$HOME/.risc0/bin" >> "$GITHUB_PATH"
+          "$HOME/.risc0/bin/rzup" install
+          "$HOME/.risc0/bin/rzup" install risc0-groth16 || true
+
+      - name: Environment check
+        run: |
+          docker --version
+          free -h
+          nproc
+          rzup show || true
+
+      - name: Generate real Groth16 proof
+        working-directory: guest
+        env:
+          RUST_LOG: info
+        run: cargo run --release
+
+      - name: Show proof.json
+        working-directory: guest
+        run: cat proof.json
+
+      - name: Upload proof artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: veil-proof
+          path: guest/proof.json
+          if-no-files-found: error

@@ -1,0 +1,55 @@
+{
+  "working_dir": "/Users/MAC/stellar-hacks-zk",
+  "hackathon": {
+    "name": "Stellar Hacks: Real-World ZK",
+    "url": "https://dorahacks.io/hackathon/stellar-hacks-zk/detail",
+    "platform": "dorahacks",
+    "organizer": "Stellar Development Foundation",
+    "hard_deadline": "2026-06-29T19:00:00Z",
+    "deadline_note": "Page says Jun 29 12:00PM PST; planning to safer PDT interpretation 19:00 UTC",
+    "videoLengthRequirement": 180,
+    "video_spec": "2 to 3 minutes; show project working + what ZK does; need not appear on camera",
+    "submissions_open": "2026-06-15T08:00:00Z",
+    "tracks": ["single open innovation track (no sub-tracks)"],
+    "prize_pool_usd": 10000,
+    "prizes": {"1": 5000, "2": 2000, "3": 1250, "4": 1000, "5": 750},
+    "sponsors": ["Stellar Development Foundation"]
+  },
+  "manifest": {
+    "research_depth": 6,
+    "brief_path": "/Users/MAC/.claude/skills/hackathon-briefs/stellar-hacks-zk.md"
+  },
+  "checkpoints_answered": {
+    "cp1": {
+      "answered": true,
+      "next_phase": "warroom",
+      "idea_steer": "let warroom decide (full mild->wild ladder)",
+      "zk_path_recommendation": "Circom/Groth16 default (cheapest verify, soroban-examples verifier); Noir fallback for dev speed; forge finalizes",
+      "autonomy": "not explicitly set; proceeding through pipeline, pausing at human checkpoints"
+    }
+  },
+  "confirmed_urls": {},
+  "pipeline": {
+    "phases": {
+      "intel": {"status": "complete", "dispatched_at": "2026-06-23T00:00:00Z", "completed_at": "2026-06-23T00:00:00Z", "artifacts": ["/Users/MAC/stellar-hacks-zk/research-brief.md", "/Users/MAC/.claude/skills/hackathon-briefs/stellar-hacks-zk.md"]},
+      "warroom": {"status": "complete", "warroom_version": "extended-manual", "dispatched_at": "2026-06-25T00:00:00Z", "completed_at": "2026-06-26T00:00:00Z", "winner": "Veil", "backup": "confidential payments (fallback if Phase 0 walled — did NOT wall)", "thesis_present": true, "selectedIdea": "Veil", "charter": "/Users/MAC/stellar-hacks-zk/SCOPE.md", "artifacts": ["/Users/MAC/stellar-hacks-zk/SCOPE.md", "/Users/MAC/stellar-hacks-zk/warroom/WINNER-BRIEF.md"], "supersedes": "zkTrack and ~13 other ideas rejected in extended manual deliberation 2026-06-26; SCOPE.md is the single source of truth", "selection_method": "extended manual warroom — ecosystem-native + pivotal-ZK + real-demand gauntlet"},
+      "forge": {"status": "in_progress", "note": "SCOPE.md is the locked charter; ARCHITECTURE.md derived from it. Name finalized Eclipse->Veil (Eclipse L2 collision)."},
+      "phase_0a_spike": {"status": "complete", "result": "GO", "evidence": "/Users/MAC/stellar-hacks-zk/spike/PHASE-0A-RESULT.md", "testnet_verifier": "CDZRHQMXGWXDTZOPNPHLRJFTAPANBZE3GJNOKLM7FB7AG3EZFP5E5C2L"},
+      "critique": {"status": "pending"},
+      "url_preverify": {"status": "pending"},
+      "build": {"status": "pending"},
+      "debug": {"status": "pending"},
+      "wire": {"status": "pending"},
+      "verify_milestone": {"status": "pending"},
+      "design_forge": {"status": "pending"},
+      "stress_test": {"status": "pending"},
+      "polish": {"status": "pending"},
+      "deploy": {"status": "pending"},
+      "livetest": {"status": "pending"},
+      "demo_rehearsal": {"status": "pending"},
+      "demo": {"status": "pending"},
+      "package": {"status": "pending"},
+      "verify_preflight": {"status": "pending"}
+    }
+  }
+}

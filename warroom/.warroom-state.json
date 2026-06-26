@@ -1,0 +1,63 @@
+{
+  "version": "3.0",
+  "status": "complete",
+  "hackathon_name": "Stellar Hacks: Real-World ZK",
+  "warroom_iteration": 5,
+  "current_phase": "phase_5",
+  "expected_phases": ["phase_0","phase_0b","phase_0c","generation_parallel","synthesis","pool_gates","round_0","demo_scripts","pool_checkpoint","fact_check","cross_exam","challenge","phase_5"],
+  "working_dir": "/Users/MAC/stellar-hacks-zk",
+  "autonomous_mode": false,
+  "taste_blocks_selected": ["C-NA1", "C-DF1"],
+  "agents": [
+    {"codename": "PURIST", "full_name": "ZK Load-Bearing Purist", "criteria_alignment": ["ZK-LoadBearing"]},
+    {"codename": "ROOTS", "full_name": "Stellar-Core Nativist", "criteria_alignment": ["Stellar-Integration"]},
+    {"codename": "MARKET", "full_name": "Real-World Utility Realist", "criteria_alignment": ["Real-World-Utility"]},
+    {"codename": "WILD", "full_name": "Contrarian X-Factor", "criteria_alignment": ["X-factor/feasibility"]}
+  ],
+  "agent_roles_approved": true,
+  "agent_roles_approval_mode": "user_preconfirmed_in_args",
+  "phase_ledger": [
+    {"phase": "phase_0", "evidence": "config + TASTE(C-NA1,C-DF1) + V5 reversed constraints (self-dup no longer a kill; uniqueness vs others; hard kills front-running/charity/AI/Nethermind-pool)"},
+    {"phase": "phase_0b", "evidence": "4 roles carried from V3, user-preconfirmed panel (PURIST/ROOTS/MARKET/WILD), WILD moderate first-wave penalty"},
+    {"phase": "phase_0c", "evidence": "WARROOM-V5-BRIEF.md compiled"},
+    {"phase": "generation_parallel", "evidence": "5 generators, ~44 ideas (G1:7 G2:6 G3:7 G4:7 G5:8)"},
+    {"phase": "synthesis", "evidence": "7 convergence clusters; PoR cluster = V1 Solvent reincarnated"},
+    {"phase": "pool_gates", "evidence": "PoR cluster killed (provenance/prior_warroom_repeat); charity+sanctions+weak-gate killed; self-dup NOT applied; 6 presented, ceiling gate ok"},
+    {"phase": "round_0", "evidence": "4 fresh scorers; GhostMargin 8.21, SilentGauge 7.66, GateRWA 7.28, LedgerProof 7.25, ClearView 6.51, ProofBridge 5.44"},
+    {"phase": "demo_scripts", "evidence": "winner demo script in WINNER-BRIEF Thesis DEMO OBLIGATION; finalist shapes in ideas.md"},
+    {"phase": "pool_checkpoint", "evidence": "interactive; presented inline to user with recommended winner"},
+    {"phase": "fact_check", "evidence": "GhostMargin A4 soft/near-hard-fail (Blend public + no live confidential-collateral); SilentGauge all VERIFIED; LedgerProof VERIFIED safest"},
+    {"phase": "cross_exam", "evidence": "GhostMargin vs SilentGauge -> FLIP; GhostMargin took unanswered killing blow on load-bearing 35% gate"},
+    {"phase": "challenge", "evidence": "SilentGauge premortem mitigated; no critical unmitigable; YC PQ ~4-5"},
+    {"phase": "phase_5", "evidence": "WINNER-BRIEF.md with Thesis written; SilentGauge selected, LedgerProof backup"}
+  ],
+  "ideas": {
+    "alive": ["SilentGauge", "LedgerProof", "GateRWA", "ClearView", "GhostMargin", "ProofBridge"],
+    "killed": [
+      {"name": "ProofOfReserves cluster (Solvent reincarnated)", "cause": "prior_warroom_repeat + organizer_clone + provenance", "phase": "pool_gates"},
+      {"name": "DONOR-PRIVATE", "cause": "charity_hard_kill", "phase": "pool_gates"},
+      {"name": "CLEAN-FUNDS", "cause": "organizer_clone_sanctions", "phase": "pool_gates"},
+      {"name": "THRESHOLD-PAY", "cause": "weak_load_bearing", "phase": "pool_gates"}
+    ]
+  },
+  "pool_stats": {
+    "raw_generated": 44, "hybrids_created": 0, "late_entrants_seed": 0, "late_entrants_history": 0,
+    "killed_by_kill_list": 9, "killed_by_concerns": 3, "killed_by_demo_test": 0, "killed_by_score_floor": 0, "killed_by_anti_attractor": 5,
+    "brief_levers_total": 10, "brief_levers_unmapped": 2, "regeneration_rounds": 0, "rescued": 0, "presented": 6
+  },
+  "round_0_scores": {
+    "GhostMargin": 8.21, "SilentGauge": 7.66, "GateRWA": 7.28, "LedgerProof": 7.25, "ClearView": 6.51, "ProofBridge": 5.44,
+    "high_divergence": ["ProofBridge"]
+  },
+  "demo_script_verdicts": {"SilentGauge": "strong", "GhostMargin": "strong-but-fact-fail", "LedgerProof": "strong", "GateRWA": "strong", "ClearView": "thin", "ProofBridge": "thin"},
+  "pool_checkpoint": {"decision": "presented_inline_recommended_winner", "auto": false},
+  "fact_check_results": {"GhostMargin": "near_hard_fail_A4", "SilentGauge": "all_verified", "LedgerProof": "verified_safest"},
+  "cross_exam_verdict": "FLIP: SilentGauge overtakes GhostMargin (load-bearing killing blow unanswered)",
+  "challenge_registers": {"SilentGauge": "no_critical_unmitigable; tally-risk HIGH mitigated by fixed-cohort"},
+  "selected_idea": "Veil",
+  "selected_idea_note": "SUPERSEDED zkTrack. Final locked idea after extended manual deliberation (2026-06-26, ~13 ideas rejected): Veil = borrow USDC on Stellar against Ethereum collateral, with a RISC Zero proof that HIDES the amount + Ethereum identity (privacy is what makes the ZK load-bearing). Charter: /Users/MAC/stellar-hacks-zk/SCOPE.md (single source of truth). Phase 0a go/no-go spike = GO.",
+  "thesis_present": true,
+  "corrections": ["V5: self-dup reversed (not a kill)", "V5: uniqueness vs others not vs repos", "V5: front-running/charity/AI/Nethermind-pool hard kills", "V5: WILD moderate first-wave penalty with twist-forgiveness"],
+  "user_overrides": [],
+  "phases_complete": ["phase_0","phase_0b","phase_0c","generation_parallel","synthesis","pool_gates","round_0","demo_scripts","pool_checkpoint","fact_check","cross_exam","challenge","phase_5"]
+}

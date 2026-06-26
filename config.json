@@ -1,0 +1,28 @@
+{
+  "hackathon_name": "Stellar Hacks: Real-World ZK",
+  "url": "https://dorahacks.io/hackathon/stellar-hacks-zk/detail",
+  "organizer": "Stellar Development Foundation",
+  "platform": "dorahacks",
+  "deadline": "2026-06-29T19:00:00Z",
+  "deadline_human": "June 29, 12:00 PM PST (plan to 19:00 UTC)",
+  "prizes": {"1st": "$5,000 XLM", "2nd": "$2,000 XLM", "3rd": "$1,250 XLM", "4th": "$1,000 XLM", "5th": "$750 XLM"},
+  "tracks": ["Single open innovation track (no sub-tracks)"],
+  "judging_criteria": [
+    {"name": "ZK Load-Bearing", "weight": 35, "desc": "ZK powers a real part of how the project works; remove the proof and the product breaks. Not namechecked in README."},
+    {"name": "Stellar Integration Depth", "weight": 25, "desc": "Proofs verified in a Soroban contract or otherwise integrating Stellar testnet/mainnet, using native BN254/Poseidon/BLS12-381 host functions."},
+    {"name": "Real-World Utility", "weight": 20, "desc": "Solves a real problem; organizer-favored toward real money (payments, RWA, settlement, compliance) but any genuine utility counts."},
+    {"name": "Execution & Demo", "weight": 20, "desc": "Working, honest, well-documented; clear 2-3 min demo that visibly shows ZK doing real work. Sharp Mild beats sprawling."}
+  ],
+  "judges": ["Stellar Development Foundation team (specific judges not published)"],
+  "builder_profile": {
+    "builds_fast": ["Next.js / React / TypeScript", "Solidity / Foundry", "Rust (Vara/Sails experience -> Soroban is Rust)", "Node/TS backends + keepers", "Postgres/Neon", "wallet integrations"],
+    "new_but_learnable": ["Soroban SDK specifics", "Circom/Noir circuit authoring", "Stellar testnet ops"],
+    "note": "Builder uses Claude Code (high dev speed). Rust experience transfers to Soroban. Constraint is circuit/ZK-toolchain novelty, mitigated by fork-ready verifier repos and Stellar Dev Skill."
+  },
+  "core_tech": "Stellar / Soroban smart contracts (Rust) + zero-knowledge (Noir / Circom / RISC Zero off-chain proofs, on-chain verification via Protocol 25 BN254+Poseidon / Protocol 26 BN254 host functions / BLS12-381)",
+  "constraints": {
+    "timeframe_days": 6,
+    "video": "2-3 min demo, need not appear on camera",
+    "submission": "open-source repo (GitHub/GitLab/Bitbucket) + README + demo video; ZK load-bearing; must touch Stellar"
+  }
+}

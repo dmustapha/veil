@@ -1,0 +1,13 @@
+[package]
+name = "veil_prove"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+risc0-zkvm = { version = "^3.0.5", default-features = false, features = ['std'] }
+veil-core = { path = "../../core" }
+alloy-primitives = { version = "0.8", default-features = false, features = ["rlp"] }
+alloy-trie = { version = "0.7", default-features = false }
+alloy-rlp = "0.3"
