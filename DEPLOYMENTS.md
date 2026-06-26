@@ -37,5 +37,15 @@
 - Circle USDC SAC: `CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA`
 - Reflector ETH/USDC feed: `CCYOZJCOPG34LLQQ7N24YXBM7LL62R7ONMZ3G6WZAAYPB5OYKOMJRN63`
 
-## Still pending (credentials)
-- Bonsai (`BONSAI_API_KEY` + `BONSAI_API_URL`) → Phase 0b only.
+## Phase 0b — REAL proof, REAL verifier (COMPLETE, no Bonsai key needed)
+Real Groth16 proof generated free on GitHub Actions (`dmustapha/veil`, run 28265702811, x86/16GB).
+- real seal (260 bytes, selector `73c457ba` — matches the deployed verifier): `guest/fixtures/real-proof.json`
+- **real image_id** `0xd8368730bfd97adc0de554c6007a2ad784cc48f4f642347987fe8ba0cd48909d`
+- **VeilVault (REAL)**: `CAV46LV53POIPZIF3HUPM6CELV5ZWBFHKSFJ74HFDY6HM7UNOK6JWJJY`
+  - verifier = real Phase 0a Groth16 verifier `CDZRHQMX…FP5E5C2L` (3.0.5 seal verified against 3.0.0 params — compatible)
+  - init `b2150da6…`, checkpoint `23da6ebd…`
+- **REAL borrow** (real proof → real BN254 verify → USDC): tx `9de6c0af56df25c59572aa6ce764cfbefd9eb56418db75cc4ae8f0da66f8bd66`
+  - disbursed 39301529 (3.93 USDC; live ETH price), borrower 0 → 3.93, vault 5 → 1.07
+- **cheat-fails, real verifier**: tampered seal → `Error(Crypto, InvalidInput)` (BN254 pairing trap), borrow reverts, 0 USDC moved.
+
+Bonsai key NOT required — the free GitHub Actions x86 runner produced the real proof.
