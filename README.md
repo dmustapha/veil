@@ -2,7 +2,7 @@
 
 **Borrow USDC on Stellar against collateral you keep on Ethereum, proven by a zero-knowledge proof that hides the exact amount and your Ethereum identity.** The collateral never bridges. The proof, not a relayer, is what Stellar trusts. Built for Stellar Hacks: Real-World ZK.
 
-> Live app: **https://veil.vercel.app** (testnet) · Track: Real-World ZK · Networks: Ethereum Sepolia + Stellar (Soroban) testnet
+> Live app: **https://veilzk.vercel.app** (testnet) · Track: Real-World ZK · Networks: Ethereum Sepolia + Stellar (Soroban) testnet
 
 ## Why the ZK is load-bearing (remove it and the product is gone)
 
