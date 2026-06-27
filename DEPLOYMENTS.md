@@ -62,3 +62,8 @@ After the security audit fixed the CRITICAL guest slot-binding bug, the guest wa
   - cheat-fails on hardened vault: tampered proof → `Error(Crypto, InvalidInput)` revert
   - adds: checkpoint freshness guard, Reflector staleness check, CEI ordering
 - Prior vault `CAV46LV5…WJJY` (pre-hardening) superseded by the above.
+
+## Live app (deployed)
+- **https://veilzk.vercel.app** (Vercel, Next.js 15). Public, no auth. `/` landing + `/app` live workspace.
+  - `/api/state` reads vault config/loan + Reflector price + escrow lock live (retry + cached fallback).
+  - `/api/cheat` runs a live tampered-proof borrow simulation → real `Error(Crypto, InvalidInput)` trap.
