@@ -10,10 +10,20 @@
     "videoLengthRequirement": 180,
     "video_spec": "2 to 3 minutes; show project working + what ZK does; need not appear on camera",
     "submissions_open": "2026-06-15T08:00:00Z",
-    "tracks": ["single open innovation track (no sub-tracks)"],
+    "tracks": [
+      "single open innovation track (no sub-tracks)"
+    ],
     "prize_pool_usd": 10000,
-    "prizes": {"1": 5000, "2": 2000, "3": 1250, "4": 1000, "5": 750},
-    "sponsors": ["Stellar Development Foundation"]
+    "prizes": {
+      "1": 5000,
+      "2": 2000,
+      "3": 1250,
+      "4": 1000,
+      "5": 750
+    },
+    "sponsors": [
+      "Stellar Development Foundation"
+    ]
   },
   "manifest": {
     "research_depth": 6,
@@ -31,26 +41,92 @@
   "confirmed_urls": {},
   "pipeline": {
     "phases": {
-      "intel": {"status": "complete", "dispatched_at": "2026-06-23T00:00:00Z", "completed_at": "2026-06-23T00:00:00Z", "artifacts": ["/Users/MAC/stellar-hacks-zk/research-brief.md", "/Users/MAC/.claude/skills/hackathon-briefs/stellar-hacks-zk.md"]},
-      "warroom": {"status": "complete", "warroom_version": "extended-manual", "dispatched_at": "2026-06-25T00:00:00Z", "completed_at": "2026-06-26T00:00:00Z", "winner": "Veil", "backup": "confidential payments (fallback if Phase 0 walled — did NOT wall)", "thesis_present": true, "selectedIdea": "Veil", "charter": "/Users/MAC/stellar-hacks-zk/SCOPE.md", "artifacts": ["/Users/MAC/stellar-hacks-zk/SCOPE.md", "/Users/MAC/stellar-hacks-zk/warroom/WINNER-BRIEF.md"], "supersedes": "zkTrack and ~13 other ideas rejected in extended manual deliberation 2026-06-26; SCOPE.md is the single source of truth", "selection_method": "extended manual warroom — ecosystem-native + pivotal-ZK + real-demand gauntlet"},
-      "forge": {"status": "complete", "note": "SCOPE.md is the locked charter; ARCHITECTURE.md derived from it. Name finalized Eclipse->Veil (Eclipse L2 collision)."},
-      "phase_0a_spike": {"status": "complete", "result": "GO", "evidence": "/Users/MAC/stellar-hacks-zk/spike/PHASE-0A-RESULT.md", "testnet_verifier": "CDZRHQMXGWXDTZOPNPHLRJFTAPANBZE3GJNOKLM7FB7AG3EZFP5E5C2L"},
-      "build": {"status": "complete", "note": "Phases 0a/0b/1/2/3/4 + cheat-fails all real and proven live on testnets. Real Groth16 proof generated free on GitHub Actions (no Bonsai key). REAL vault CAV46LV53POIPZIF3HUPM6CELV5ZWBFHKSFJ74HFDY6HM7UNOK6JWJJY, escrow 0xb833ffEc3C1a3A0aB71a9c014fD174bA7F1eBd6F. Evidence: DEPLOYMENTS.md, E2E-LIVE.md, guest/PHASE-2-RESULT.md, spike/PHASE-0A-RESULT.md.", "real_borrow_tx": "9de6c0af56df25c59572aa6ce764cfbefd9eb56418db75cc4ae8f0da66f8bd66", "repo": "github.com/dmustapha/veil"},
-      "critique": {"status": "pending"},
-      "url_preverify": {"status": "pending"},
-      "build": {"status": "pending"},
-      "debug": {"status": "pending"},
-      "wire": {"status": "pending"},
-      "verify_milestone": {"status": "pending"},
-      "design_forge": {"status": "pending"},
-      "stress_test": {"status": "pending"},
-      "polish": {"status": "pending"},
-      "deploy": {"status": "pending"},
-      "livetest": {"status": "pending"},
-      "demo_rehearsal": {"status": "pending"},
-      "demo": {"status": "pending"},
-      "package": {"status": "pending"},
-      "verify_preflight": {"status": "pending"}
+      "intel": {
+        "status": "complete",
+        "dispatched_at": "2026-06-23T00:00:00Z",
+        "completed_at": "2026-06-23T00:00:00Z",
+        "artifacts": [
+          "/Users/MAC/stellar-hacks-zk/research-brief.md",
+          "/Users/MAC/.claude/skills/hackathon-briefs/stellar-hacks-zk.md"
+        ]
+      },
+      "warroom": {
+        "status": "complete",
+        "warroom_version": "extended-manual",
+        "dispatched_at": "2026-06-25T00:00:00Z",
+        "completed_at": "2026-06-26T00:00:00Z",
+        "winner": "Veil",
+        "backup": "confidential payments (fallback if Phase 0 walled \u2014 did NOT wall)",
+        "thesis_present": true,
+        "selectedIdea": "Veil",
+        "charter": "/Users/MAC/stellar-hacks-zk/SCOPE.md",
+        "artifacts": [
+          "/Users/MAC/stellar-hacks-zk/SCOPE.md",
+          "/Users/MAC/stellar-hacks-zk/warroom/WINNER-BRIEF.md"
+        ],
+        "supersedes": "zkTrack and ~13 other ideas rejected in extended manual deliberation 2026-06-26; SCOPE.md is the single source of truth",
+        "selection_method": "extended manual warroom \u2014 ecosystem-native + pivotal-ZK + real-demand gauntlet"
+      },
+      "forge": {
+        "status": "complete",
+        "note": "SCOPE.md is the locked charter; ARCHITECTURE.md derived from it. Name finalized Eclipse->Veil (Eclipse L2 collision)."
+      },
+      "phase_0a_spike": {
+        "status": "complete",
+        "result": "GO",
+        "evidence": "/Users/MAC/stellar-hacks-zk/spike/PHASE-0A-RESULT.md",
+        "testnet_verifier": "CDZRHQMXGWXDTZOPNPHLRJFTAPANBZE3GJNOKLM7FB7AG3EZFP5E5C2L"
+      },
+      "build": {
+        "status": "pending"
+      },
+      "critique": {
+        "status": "pending"
+      },
+      "url_preverify": {
+        "status": "pending"
+      },
+      "debug": {
+        "status": "complete",
+        "confidenceScore": 92,
+        "note": "Audit found+fixed CRITICAL guest slot-binding (unbacked-loan exploit) + vault hardening (freshness/staleness/CEI). Re-proved on CI, re-deployed, re-validated live. escrow 12/12 vault 12/12.",
+        "artifacts": [
+          "/Users/MAC/stellar-hacks-zk/DEBUG-REPORT.md"
+        ]
+      },
+      "wire": {
+        "status": "pending"
+      },
+      "verify_milestone": {
+        "status": "pending"
+      },
+      "design_forge": {
+        "status": "pending"
+      },
+      "stress_test": {
+        "status": "pending"
+      },
+      "polish": {
+        "status": "pending"
+      },
+      "deploy": {
+        "status": "pending"
+      },
+      "livetest": {
+        "status": "pending"
+      },
+      "demo_rehearsal": {
+        "status": "pending"
+      },
+      "demo": {
+        "status": "pending"
+      },
+      "package": {
+        "status": "pending"
+      },
+      "verify_preflight": {
+        "status": "pending"
+      }
     }
   }
 }
