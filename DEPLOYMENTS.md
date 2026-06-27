@@ -49,3 +49,16 @@ Real Groth16 proof generated free on GitHub Actions (`dmustapha/veil`, run 28265
 - **cheat-fails, real verifier**: tampered seal → `Error(Crypto, InvalidInput)` (BN254 pairing trap), borrow reverts, 0 USDC moved.
 
 Bonsai key NOT required — the free GitHub Actions x86 runner produced the real proof.
+
+## Post-DEBUG: hardened vault + fixed guest (CURRENT)
+After the security audit fixed the CRITICAL guest slot-binding bug, the guest was re-proved (run
+28270372443) and the hardened vault re-deployed.
+- **fixed guest image_id** `0xc1fb4c3a0ef6736f4abff926f44b37ff173724b5ff6e0deeea2236ca7577b245`
+- new real proof: `guest/fixtures/real-proof.json` (seal selector `73c457ba`)
+- **VeilVault (HARDENED, CURRENT)**: `CBICAWGA2HGZQIFQOY27DYMXXGCA6OMNAE5G77Z2T7N7DOMTLYWVGILV`
+  - verifier = real Phase 0a verifier `CDZRHQMX…FP5E5C2L`, LTV 25% (fit remaining test USDC)
+  - **REAL borrow with fixed proof**: tx `026d4af681634b67acf4825f6a63f43d0c3c0d6804adeebcba2faf13a7b21e6e`
+    (disbursed 19714162 = 1.97 USDC; borrower 0.93→2.90)
+  - cheat-fails on hardened vault: tampered proof → `Error(Crypto, InvalidInput)` revert
+  - adds: checkpoint freshness guard, Reflector staleness check, CEI ordering
+- Prior vault `CAV46LV5…WJJY` (pre-hardening) superseded by the above.
