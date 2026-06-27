@@ -11,6 +11,9 @@
 
 # node
 **/node_modules/
+**/.next/
+**/.vercel/
+**/*.tsbuildinfo
 
 # local Nethermind verifier clone (referenced via git dep; keep only the result note)
 spike/stellar-risc0-verifier/
@@ -23,3 +26,31 @@ guest/proof.json
 
 # foundry deps (reinstallable via forge install)
 **/lib/forge-std/
+
+# build/pipeline working artifacts (local only, not part of the project)
+.conductor-state.json
+.conductor-state.json.bak
+.conductor-resume.md
+.conductor-lock/
+.wire-state.json
+.verify-state.json
+.debug-state.json
+.stress-test-state.json
+.design-forge-state.json
+PULSE.md
+pipeline-log.md
+config.json
+WIRE-REPORT.md
+VERIFY-REPORT.md
+DEBUG-REPORT.md
+STRESS-TEST-REPORT.md
+STRESS-TEST-PLAN.md
+FEATURE-OBSERVABLES.md
+warroom/
+research/
+research-brief.md
+tasks/
+debug-results/
+web/ai/
+web/DESIGN_SYSTEM.md
+web/design/
