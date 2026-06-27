@@ -29,7 +29,8 @@ export const cfg = {
   // Stellar (Soroban testnet)
   network: "testnet",
   stellarSource: "veil-spike",
-  vault: "CBK7UNIOLBKWJ3N63W53AHPN4WBPLJL6CGDAUER6VB5BMCKBNBGRMAJ2",
+  // CURRENT hardened vault (post-debug). Prior CBK7UNIO/CAV46LV5 instances are superseded.
+  vault: "CBICAWGA2HGZQIFQOY27DYMXXGCA6OMNAE5G77Z2T7N7DOMTLYWVGILV",
 };
 
 export function cast(args) {

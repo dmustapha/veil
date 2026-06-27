@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="156" height="40" viewBox="0 0 156 40">
+  <rect x="2" y="4" width="32" height="32" rx="7" fill="#0A0C10"/>
+  <rect x="5.5" y="7.5" width="25" height="25" rx="6" fill="none" stroke="#C7CCD1" stroke-opacity="0.26"/>
+  <circle cx="18" cy="15" r="2.7" fill="#A8C7EC"/>
+  <line x1="10" y1="21" x2="26" y2="21" stroke="#ECEFF2" stroke-width="1.8" stroke-linecap="round"/>
+  <rect x="12" y="24.6" width="12" height="1.9" rx="0.95" fill="#C7CCD1" fill-opacity="0.42"/>
+  <rect x="12" y="27.8" width="8" height="1.9" rx="0.95" fill="#C7CCD1" fill-opacity="0.42"/>
+  <text x="44" y="27.5" font-family="Fraunces, Georgia, 'Times New Roman', serif" font-size="25" font-weight="600" fill="#ECEFF2" letter-spacing="0.3">Veil</text>
+</svg>

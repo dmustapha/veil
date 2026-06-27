@@ -1,0 +1,16 @@
+{
+  "name": "Veil",
+  "tagline": "Borrow on Stellar against collateral you keep on Ethereum, proven by a zero-knowledge proof that hides your amount and your identity.",
+  "colorMode": "dark-only",
+  "brandColor": "#C7CCD1",
+  "ink": ["#07090C", "#0A0C10", "#0E1117", "#141822", "#1B212D"],
+  "semantic": { "verified": "#7FA8D6", "verifiedBright": "#A8C7EC", "danger": "#E06A6A" },
+  "fonts": { "display": "Fraunces", "body": "Hanken Grotesk", "mono": "JetBrains Mono" },
+  "radii": { "sm": 8, "md": 14, "lg": 20, "xl": 28 },
+  "shadowPhilosophy": "pure-glow",
+  "signatureElement": "frosted-glass veil over the hidden amount, with an inset top-edge highlight",
+  "logo": {
+    "concept": "a value (proof dot) above a veil line with redaction bars beneath: the signature frosted-veil distilled to a mark",
+    "files": ["public/logo.svg", "app/icon.svg", "components/BrandMark.tsx"]
+  }
+}
