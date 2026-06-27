@@ -78,7 +78,9 @@
         "testnet_verifier": "CDZRHQMXGWXDTZOPNPHLRJFTAPANBZE3GJNOKLM7FB7AG3EZFP5E5C2L"
       },
       "build": {
-        "status": "pending"
+        "status": "complete",
+        "note": "Phases 0a/0b/1/2/3/4 + cheat-fails real and live; hardened post-debug. Vault CBICAWGA2HGZQIFQOY27DYMXXGCA6OMNAE5G77Z2T7N7DOMTLYWVGILV, escrow 0xb833ffEc3C1a3A0aB71a9c014fD174bA7F1eBd6F, real verifier CDZRHQMX...",
+        "repo": "github.com/dmustapha/veil"
       },
       "critique": {
         "status": "pending"
