@@ -197,8 +197,8 @@ export default function LandingPage() {
                     Veil is not trustless. We name exactly what you trust.
                   </span>
                   <span className={styles.trustSub}>
-                    A price oracle, two testnets, and one prover. Read the
-                    honest list before you rely on it.
+                    A checkpoint poster, a price oracle, and a sane timeout —
+                    on two testnets. Read the honest list before you rely on it.
                   </span>
                 </span>
               </div>

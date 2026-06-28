@@ -5,7 +5,7 @@
 > (stress_test, demo, package). Where this conflicts with SCOPE.md, SCOPE.md wins.
 
 ## 1. Product (one line)
-Borrow USDC on Stellar against collateral you keep on Ethereum, proving you are good for it with a zero-knowledge proof that hides the exact amount and your Ethereum identity. The collateral never bridges; the proof, not a relayer, is what Stellar trusts.
+Borrow USDC on Stellar against collateral you keep on Ethereum, proving you are good for it with a zero-knowledge proof that keeps your exact amount and Ethereum wallet off the Stellar ledger (the hashlock is public on both chains, so Ethereum-side unlinkability is named future work — SCOPE §12). The collateral never bridges; the proof, not a relayer, is what Stellar trusts.
 
 ## 1.3 User Flows
 1. **Borrow (hero flow):** lock collateral in the Sepolia escrow → generate a RISC Zero proof that `locks[H].amount ≥ threshold` (amount + address private) → Soroban vault verifies the Groth16 proof on-chain and disburses real Circle USDC sized by the Reflector price → the Stellar ledger only ever sees `{threshold, hashlock, nullifier, proof}`.

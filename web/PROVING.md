@@ -74,6 +74,35 @@ serverless host (Vercel) there is no `gh` and no admin key, so both routes repor
 `unavailable` reason and the UI tells the user honestly. We never ship a fake proof to keep the
 demo "working".
 
+## Privacy of the proving surface (important)
+
+The witness the host proves over — the raw `eth_getProof` result — **contains the exact collateral
+amount**: per EIP-1186 each `storageProof[].value` IS the slot's contents, and `locks[H].amount`
+is that slot. So the proving surface must keep that value private:
+
+- **The host never prints the amount.** `guest/host/src/main.rs` logs only the public `threshold`.
+- **The workflow never prints the witness.** `prove.yml` passes the fixture via `env:` (not inline
+  `${{ }}` interpolation) and does not `cat` the fixture/meta. `proof.json` (seal + journal +
+  threshold) carries no amount, so showing it is safe.
+- **`/api/prove/status` is authenticated.** It returns `{seal, journal}` only for an HMAC-signed
+  job token handed to the caller by `POST /api/prove`, so a real proof cannot be harvested by
+  polling guessable run ids.
+
+**The one surface this does not fully cover is a *public* CI repo.** A `workflow_dispatch` input
+value and an uploaded artifact are world-visible on a public repository — so a real user's private
+amount must **not** be proven on the public submission repo. The demo's pinned fixture is exempt:
+its amount (0.01 ETH) is already public on Etherscan and committed under `guest/fixtures`, so
+proving it on public CI leaks nothing new. For a real user, route proving to a **private prover**:
+
+- **Bonsai** (the prover operator sees the witness — disclosable — but the public does not), or
+- a **self-hosted runner / private repo** that runs the identical, unchanged guest (so the image id
+  stays `0xc1fb4c3a…` and the deployed Soroban verifier keeps accepting the seal).
+
+`dispatchProof` already accepts a `GITHUB_REPO` override, so pointing real-user proving at a private
+repo is a one-env change with no code or guest change. The bearer-redeemable-proof hole (a stolen
+`{seal, journal}` redeemed by a different recipient) is closed at the protocol layer by binding the
+borrower address into the journal and asserting it on-chain in `borrow` (see the vault + guest).
+
 ## Swapping in Bonsai or a rented prover box
 
 `dispatchProof` and `runStatus` in `lib/server/prover.ts` are the **only** two functions that

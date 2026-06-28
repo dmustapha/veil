@@ -1,9 +1,18 @@
 # Veil — Live End-to-End Run (real testnets)
 
+> ⚠️ **SUPERSEDED (historical bring-up cycle).** This page documents an EARLY cycle that ran
+> against the now-retired vault `CBK7UNIO…` with an interim **mock** verifier, before the real
+> Groth16 verifier was wired and the guest slot-binding bug was fixed. **It does not describe the
+> shipped system.** For the current, real on-chain facts — real RISC Zero Groth16 verifier
+> (`CDZRHQMX…FP5E5C2L`), hardened vault (`CBICAWGA…WVGILV`), fixed guest image_id
+> (`0xc1fb4c3a…`), and the real borrow tx `026d4af6…` — see **README.md** and the
+> "Post-DEBUG" section of **DEPLOYMENTS.md**. The numbers below (3.945 USDC, 50% LTV, mock
+> verifier) are from the superseded cycle and are intentionally left as a build record.
+
 A full cross-chain borrow→repay→unlock cycle on **real** Sepolia + Soroban testnets, with **real
 Circle USDC**, **live Reflector pricing**, a **real `eth_getProof`**, and the cross-chain secret
-relay. The ONLY mock component is the proof verifier (RISC Zero Groth16 verifier swaps in at
-Phase 0b once Bonsai issues the key — Phase 0a already proved that verifier works on Soroban).
+relay. In this superseded cycle the proof verifier was still the interim **mock**; the shipped
+system replaced it with the real RISC Zero Groth16 verifier (proven in Phase 0a, wired at 0b).
 
 ## The cycle (every step is a real on-chain tx)
 | # | Step | Chain | Result | Tx |

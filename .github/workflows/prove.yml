@@ -2,8 +2,13 @@ name: prove
 
 # Produces the REAL RISC Zero Groth16 proof for Veil on a free GitHub-hosted x86 runner
 # (16 GB RAM, the spec local Groth16 proving needs). No Bonsai key, no cost. The guest reads the
-# committed fixture (guest/fixtures), so this run needs no secrets and no live RPC.
-# The resulting proof.json (seal + image_id + journal) is uploaded as an artifact.
+# committed fixture (guest/fixtures); proof.json (seal + image_id + journal) is uploaded as an artifact.
+#
+# PRIVACY NOTE: with no inputs (push, or a plain dispatch) this proves the COMMITTED demo fixture,
+# whose amount is already public (Etherscan + guest/fixtures), so nothing leaks. A real user's
+# PRIVATE collateral amount must NOT be proven on this public repo's CI (a workflow_dispatch input
+# value is world-visible) — route real-user proving to a private prover (Bonsai / self-hosted
+# runner / private repo). See web/PROVING.md. The steps below never print witness contents.
 
 on:
   workflow_dispatch:
@@ -61,11 +66,17 @@ jobs:
       - name: Write user fixture (if provided)
         if: ${{ github.event.inputs.fixture_b64 != '' }}
         working-directory: guest/fixtures
+        # PRIVACY: the fixture/meta carry the PRIVATE collateral amount (an eth_getProof storage
+        # value IS the slot contents per EIP-1186). Pass them through `env:` (NOT inline ${{ }}
+        # interpolation, which would expand into the run-log shell line) and NEVER print their
+        # contents. A public CI surface would otherwise publish the exact amount the proof hides.
+        env:
+          FIXTURE_B64: ${{ github.event.inputs.fixture_b64 }}
+          META_B64: ${{ github.event.inputs.meta_b64 }}
         run: |
-          printf '%s' "${{ github.event.inputs.fixture_b64 }}" | base64 -d > eth_getproof_pinned.json
-          printf '%s' "${{ github.event.inputs.meta_b64 }}" | base64 -d > fixture_meta.json
-          echo "Using user-supplied fixture:"
-          cat fixture_meta.json
+          printf '%s' "$FIXTURE_B64" | base64 -d > eth_getproof_pinned.json
+          printf '%s' "$META_B64" | base64 -d > fixture_meta.json
+          echo "user fixture written (contents withheld; amount is private)"
 
       - name: Generate real Groth16 proof
         working-directory: guest

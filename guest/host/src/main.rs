@@ -73,7 +73,10 @@ fn main() {
         storage_proof: sp["proof"].as_array().unwrap().iter().map(|n| hx(n.as_str().unwrap())).collect(),
     };
 
-    println!("amount (PRIVATE) = {amount_wei} wei | threshold (public) = {threshold_wei} wei");
+    // PRIVACY: the collateral `amount_wei` is a PRIVATE witness and must never be printed.
+    // This host can run in public CI, whose step logs are world-visible on a public repo, so we
+    // log only the public `threshold` — never the amount the proof exists to hide.
+    println!("threshold (public) = {threshold_wei} wei");
 
     // Groth16 receipt: in CI (no RISC0_DEV_MODE) this is the real BN254 proof the Soroban vault
     // verifies; under RISC0_DEV_MODE it is a fast fake for logic checks.
