@@ -6,6 +6,7 @@ import { WalletProvider } from "./WalletContext";
 import { WalletBar } from "./WalletBar";
 import { OpenPosition } from "./OpenPosition";
 import { PositionCard } from "./PositionCard";
+import { PrivacyLedger } from "./PrivacyLedger";
 import { CheatPlayground } from "./CheatPlayground";
 import { loadPositions, type StoredPosition } from "@/lib/app/positions";
 
@@ -56,6 +57,17 @@ export function AppWorkspace() {
       </section>
       <section className="wrap app-body">
         <Positions />
+        <div className="app-section-head reveal" style={{ marginTop: 8 }}>
+          <h2 className="app-h2">What Stellar sees</h2>
+          <p className="help">
+            The same loan, two ways: what a naive cross-chain design would publish
+            versus what Veil&apos;s proof actually records. This is the privacy the
+            ZK buys, made legible.
+          </p>
+        </div>
+        <div className="reveal">
+          <PrivacyLedger />
+        </div>
         <div className="app-section-head reveal" style={{ marginTop: 8 }}>
           <h2 className="app-h2">Test the defense</h2>
         </div>

@@ -27,6 +27,7 @@ import {
   encodeAbiParameters,
   keccak256,
   toHex,
+  toBytes,
   hexToBigInt,
   createPublicClient,
   http,
@@ -78,6 +79,20 @@ function runIdFromToken(token: string): string | null {
 
 const isHex32 = (s: string) => /^0x[0-9a-fA-F]{64}$/.test(s);
 
+/**
+ * Recipient binding committed into the journal: keccak256 of the borrower's canonical Stellar
+ * strkey ASCII. The vault recomputes `keccak256(caller.to_string().to_bytes())` and rejects a
+ * mismatch, so a stolen {seal, journal} cannot be redeemed by another account. This MUST match the
+ * on-chain computation byte-for-byte (proven by the vault's recipient_binding_matches_offchain_keccak
+ * test for the demo strkey).
+ */
+export function recipientCommitment(strkey: string): `0x${string}` {
+  if (!/^[GC][A-Z2-7]{55}$/.test(strkey)) {
+    throw new Error("borrower must be a canonical Stellar (G…/C…) strkey");
+  }
+  return keccak256(toBytes(strkey));
+}
+
 /** keccak256(abi.encode(bytes32 H, uint256 0)) + 1 - the bound `locks[H].amount` slot. */
 export function amountSlot(h: string): `0x${string}` {
   const enc = encodeAbiParameters(
@@ -104,10 +119,12 @@ export type Fixture = { fixture: RawProof; meta: Record<string, unknown>; block:
 /** Wrap a raw eth_getProof JSON-RPC result + block into the host's fixture + meta shape. */
 export async function buildFixture(
   h: string,
+  borrower: string,
   escrow: string = ESCROW,
   blockOverride?: number
 ): Promise<Fixture> {
   if (!isHex32(h)) throw new Error("hashlock must be 0x + 64 hex chars");
+  const recipient = recipientCommitment(borrower); // binds the proof to this Stellar account
   const client = createPublicClient({ chain: sepolia, transport: http(sepoliaRpc()) });
   const slot = amountSlot(h);
 
@@ -147,6 +164,7 @@ export async function buildFixture(
     pinned_block: Number(block),
     state_root: blk.stateRoot,
     block_hash: blk.hash,
+    recipient,
     storage_value: sp.value,
     storage_hash: proof.storageHash,
     account_proof_nodes: proof.accountProof.length,

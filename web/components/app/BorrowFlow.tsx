@@ -72,7 +72,8 @@ export function BorrowFlow({
     setPhase("proving");
     setMessage("Generating the proof off-chain. This takes a few minutes.");
     try {
-      const { id } = await startProve(pos.h, ESCROW);
+      // Bind the proof to the connected Stellar account; the vault rejects redemption by any other.
+      const { id } = await startProve(pos.h, ESCROW, xlm.address);
       pollProof(id);
     } catch (e) {
       setPhase("error");

@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic";
  * reason and NO id. The client surfaces the reason and never runs a borrow without a real proof.
  */
 export async function POST(req: Request) {
-  let body: { h?: string; escrow?: string; block?: number };
+  let body: { h?: string; escrow?: string; block?: number; borrower?: string };
   try {
     body = await req.json();
   } catch {
@@ -35,10 +35,17 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+  const borrower = body.borrower?.trim();
+  if (!borrower) {
+    return NextResponse.json(
+      { error: "bad-request", reason: "missing `borrower` (the Stellar account the loan binds to)" },
+      { status: 400 }
+    );
+  }
   const escrow = body.escrow?.trim() || ESCROW;
 
   try {
-    const fx = await buildFixture(h, escrow, body.block);
+    const fx = await buildFixture(h, borrower, escrow, body.block);
     await ensureCheckpoint(fx.block, fx.stateRoot);
     const id = await dispatchProof(fx);
     return NextResponse.json({ id, block: fx.block });

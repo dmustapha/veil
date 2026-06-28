@@ -16,17 +16,18 @@ export type ProveStatus =
 const NOT_READY =
   "The proving backend is not available yet. Proving runs off-chain and is wired in the next build; without a real proof, no borrow can run.";
 
-/** Kick off a proof for a lock. Returns a job id to poll. */
+/** Kick off a proof for a lock, bound to `borrower` (the Stellar account the loan redeems to). */
 export async function startProve(
   h: string,
-  escrow: string
+  escrow: string,
+  borrower: string
 ): Promise<{ id: string }> {
   let res: Response;
   try {
     res = await fetch("/api/prove", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ h, escrow }),
+      body: JSON.stringify({ h, escrow, borrower }),
     });
   } catch {
     throw new Error(NOT_READY);
