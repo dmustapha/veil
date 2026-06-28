@@ -29,8 +29,11 @@ const BUMP_THRESHOLD: u32 = BUMP_AMOUNT - DAY_LEDGERS;
 /// posted checkpoint. Stops borrowing against a stale root after collateral was withdrawn.
 /// ~300 Sepolia blocks (~1h at 12s/block).
 const MAX_BLOCK_AGE: u64 = 300;
-/// Max age (seconds) of the Reflector price used to size a loan.
-const MAX_PRICE_AGE_SECS: u64 = 86_400;
+/// Max age (seconds) of the Reflector price used to size a loan. Reflector (SEP-40) refreshes on
+/// a ~5-min heartbeat (verified live on testnet: a read was ~4.5 min old), so 30 min is ~6x the
+/// heartbeat — tight enough that a manipulated/stale single feed cannot mis-size a loan, with
+/// margin for testnet jitter. (Was 86_400 = 24h, ~288x the heartbeat.)
+const MAX_PRICE_AGE_SECS: u64 = 1_800;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -52,6 +55,7 @@ pub enum Error {
     LoanTooSmall = 14,
     StaleCheckpoint = 15,
     StalePrice = 16,
+    WrongRecipient = 17,
 }
 
 // ---- Reflector (SEP-40) minimal interface ----
@@ -181,6 +185,15 @@ impl VeilVault {
         // 3. Bind the proof to our escrow + a known checkpoint.
         if j.escrow != cfg.escrow_addr {
             return Err(Error::WrongEscrow);
+        }
+        // 3a. Bind the proof to THIS borrower. The journal commits keccak256(recipient strkey);
+        //     recompute it from the (authenticated) caller and reject a mismatch. A stolen
+        //     {seal, journal} therefore cannot be redeemed by anyone but the account it was
+        //     proven for — closing the bearer-proof hole.
+        let strkey = borrower.to_string().to_bytes();
+        let expected_recipient = env.crypto().keccak256(&strkey).to_bytes();
+        if j.recipient != expected_recipient {
+            return Err(Error::WrongRecipient);
         }
         let ck = DataKey::Checkpoint(j.block);
         let root: BytesN<32> = env.storage().persistent().get(&ck).ok_or(Error::UnknownCheckpoint)?;

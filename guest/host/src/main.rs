@@ -47,6 +47,8 @@ fn main() {
     let amount_slot = arr32(meta["amount_slot"].as_str().unwrap());
     let state_root = arr32(meta["state_root"].as_str().unwrap());
     let block = meta["pinned_block"].as_u64().unwrap();
+    // Recipient binding: keccak256(borrower strkey ASCII), supplied by the prover backend.
+    let recipient = arr32(meta["recipient"].as_str().unwrap());
 
     let sp = &proof["storageProof"][0];
     let amount_wei =
@@ -63,6 +65,7 @@ fn main() {
         escrow,
         threshold_wei,
         hashlock,
+        recipient,
         amount_wei,
         amount_slot,
         account_nonce: nonce,
@@ -99,7 +102,7 @@ fn main() {
     pre.extend_from_slice(&escrow);
     pre.extend_from_slice(&hashlock);
     let nullifier: [u8; 32] = keccak256(&pre).into();
-    let expected = encode_journal(&state_root, block, &escrow, threshold_wei, &hashlock, &nullifier);
+    let expected = encode_journal(&state_root, block, &escrow, threshold_wei, &hashlock, &nullifier, &recipient);
 
     assert_eq!(journal.as_slice(), &expected[..], "journal mismatch host vs guest");
     // Sanity: the secret amount must NOT appear anywhere in the public journal.

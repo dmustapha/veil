@@ -9,10 +9,11 @@
 //!  [ 60.. 76) threshold   T  (16) — collateral lower bound in wei (u128)
 //!  [ 76..108) hashlock    H  (32) — keccak(S); binds escrow lock <-> loan
 //!  [108..140) nullifier   N  (32) — keccak("veil-null"||E||H); one lock -> one loan
+//!  [140..172) recipient   P  (32) — keccak(borrower strkey); binds the loan to one Stellar account
 //! ```
 use soroban_sdk::{Bytes, BytesN, Env};
 
-pub const JOURNAL_LEN: u32 = 140;
+pub const JOURNAL_LEN: u32 = 172;
 
 #[derive(Clone)]
 pub struct Journal {
@@ -22,6 +23,7 @@ pub struct Journal {
     pub threshold_wei: u128,
     pub hashlock: BytesN<32>,
     pub nullifier: BytesN<32>,
+    pub recipient: BytesN<32>,
 }
 
 fn slice32(env: &Env, b: &Bytes, start: u32) -> BytesN<32> {
@@ -51,8 +53,9 @@ pub fn decode(env: &Env, j: &Bytes) -> Journal {
 
     let hashlock = slice32(env, j, 76);
     let nullifier = slice32(env, j, 108);
+    let recipient = slice32(env, j, 140);
 
-    Journal { state_root, block, escrow, threshold_wei, hashlock, nullifier }
+    Journal { state_root, block, escrow, threshold_wei, hashlock, nullifier, recipient }
 }
 
 /// Size a loan in USDC (7 decimals) from a wei threshold, a Reflector price, and an LTV.

@@ -69,7 +69,9 @@ fn main() {
     pre.extend_from_slice(&input.hashlock);
     let nullifier: [u8; 32] = keccak256(&pre).into();
 
-    // 5. Commit the canonical 140-byte journal (the only public output).
+    // 5. Commit the canonical 172-byte journal (the only public output). `recipient` is a public
+    //    binding (keccak256 of the borrower's Stellar strkey) the vault asserts against the caller,
+    //    so a stolen proof cannot be redeemed by a different account.
     let journal = encode_journal(
         &input.state_root,
         input.block,
@@ -77,6 +79,7 @@ fn main() {
         input.threshold_wei,
         &input.hashlock,
         &nullifier,
+        &input.recipient,
     );
     env::commit_slice(&journal);
 }

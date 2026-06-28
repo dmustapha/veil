@@ -3,7 +3,7 @@
 //! The journal layout MUST stay byte-identical to `contracts/vault/src/journal.rs`.
 use serde::{Deserialize, Serialize};
 
-pub const JOURNAL_LEN: usize = 140;
+pub const JOURNAL_LEN: usize = 172;
 /// Domain tag for the nullifier preimage: keccak256("veil-null" || escrow || hashlock).
 pub const NULL_TAG: &[u8] = b"veil-null";
 
@@ -17,6 +17,10 @@ pub struct ProofInput {
     pub escrow: [u8; 20],
     pub threshold_wei: u128,
     pub hashlock: [u8; 32],
+    /// Recipient binding: keccak256(borrower's canonical Stellar strkey ASCII). Committed publicly
+    /// so the vault can assert `journal.recipient == keccak256(caller.strkey)` and refuse to let a
+    /// stolen {seal, journal} be redeemed by anyone but the account it was proven for.
+    pub recipient: [u8; 32],
     // --- private witnesses ---
     pub amount_wei: u128,
     pub amount_slot: [u8; 32],
@@ -30,8 +34,8 @@ pub struct ProofInput {
     pub storage_proof: Vec<Vec<u8>>,
 }
 
-/// Canonical 140-byte journal. Big-endian, fixed offsets:
-/// `R(32) ‖ block(8) ‖ escrow(20) ‖ threshold(16) ‖ H(32) ‖ N(32)`.
+/// Canonical 172-byte journal. Big-endian, fixed offsets:
+/// `R(32) ‖ block(8) ‖ escrow(20) ‖ threshold(16) ‖ H(32) ‖ N(32) ‖ recipient(32)`.
 pub fn encode_journal(
     state_root: &[u8; 32],
     block: u64,
@@ -39,6 +43,7 @@ pub fn encode_journal(
     threshold_wei: u128,
     hashlock: &[u8; 32],
     nullifier: &[u8; 32],
+    recipient: &[u8; 32],
 ) -> [u8; JOURNAL_LEN] {
     let mut out = [0u8; JOURNAL_LEN];
     out[0..32].copy_from_slice(state_root);
@@ -47,5 +52,6 @@ pub fn encode_journal(
     out[60..76].copy_from_slice(&threshold_wei.to_be_bytes());
     out[76..108].copy_from_slice(hashlock);
     out[108..140].copy_from_slice(nullifier);
+    out[140..172].copy_from_slice(recipient);
     out
 }
