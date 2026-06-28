@@ -1,0 +1,70 @@
+.foot {
+  position: relative;
+  z-index: 2;
+  max-width: var(--maxw);
+  margin: 48px auto 0;
+  padding: 34px 20px 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--line);
+}
+@media (min-width: 768px) {
+  .foot {
+    padding: 34px 32px 56px;
+  }
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  color: var(--platinum-dim);
+  font-size: 13.5px;
+}
+
+.links {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.link {
+  font-size: 13px;
+  color: var(--text-dim);
+  transition: color 160ms var(--ease);
+}
+@media (hover: hover) {
+  .link:hover {
+    color: var(--platinum-bright);
+  }
+}
+.link:active {
+  color: var(--platinum);
+}
+
+.meta {
+  font-size: 13px;
+  color: var(--text-faint);
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.live {
+  color: var(--lime);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.live svg {
+  width: 13px;
+  height: 13px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .link {
+    transition: none;
+  }
+}

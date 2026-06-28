@@ -25,6 +25,10 @@ export const ESCROW = "0xb833ffEc3C1a3A0aB71a9c014fD174bA7F1eBd6F";
 export const BORROWER =
   "GABHHKTQVGUQPZMXYJIP6OESTUS6QQA3AICEQI77B4FORUW4CPIVFXIF";
 
+/** Circle USDC Stellar Asset Contract (testnet SAC). The real token a borrow disburses. */
+export const USDC_SAC =
+  "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA";
+
 /** Reflector price feed asset: Other(Symbol("ETH")). */
 export const REFLECTOR_ASSET_SYMBOL = "ETH";
 

@@ -1,0 +1,450 @@
+/* ============================================================
+   Landing (lean pitch). Zoned hybrid: soft-luxe money zones +
+   hard-brutalist proof zones. Shared .btn/.wrap come from globals.css.
+   ============================================================ */
+
+.section {
+  position: relative;
+  z-index: 2;
+}
+
+/* ---------------- HERO (soft zone) ---------------- */
+.hero {
+  padding: 44px 0 26px;
+}
+@media (min-width: 768px) {
+  .hero {
+    padding: 60px 0 36px;
+  }
+}
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--platinum-dim);
+  margin-bottom: 24px;
+}
+.eyebrow .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 10px var(--lime-glow);
+}
+.title {
+  font-family: var(--font-display-stack);
+  font-weight: 500;
+  font-size: clamp(40px, 6.6vw, 76px);
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  margin: 0 0 22px;
+  color: var(--platinum-bright);
+  max-width: 16ch;
+}
+.title em {
+  font-style: italic;
+  color: var(--lime);
+  font-weight: 500;
+}
+.subhead {
+  font-size: clamp(16px, 1.9vw, 19px);
+  line-height: 1.62;
+  color: var(--text);
+  max-width: 60ch;
+  margin: 0 0 30px;
+}
+.ctaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+}
+.ctaRow svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* hero showcase: the two signatures, side by side */
+.showcase {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  margin-top: 36px;
+  align-items: stretch;
+}
+@media (min-width: 760px) {
+  .showcase {
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+}
+.show {
+  display: flex;
+  flex-direction: column;
+}
+.showTag {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 14px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.showTag .mk {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+}
+.show.soft .showTag {
+  font-family: var(--font-display-stack);
+  color: var(--platinum-bright);
+}
+.show.soft .showTag .mk {
+  border-radius: 50%;
+  background: var(--platinum);
+}
+.show.hard .showTag {
+  font-family: var(--font-hard-stack);
+  font-weight: 700;
+  color: var(--platinum-bright);
+}
+.show.hard .showTag .mk {
+  background: var(--lime);
+}
+.showCap {
+  margin-top: 14px;
+  font-size: 13.5px;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+.showCap b {
+  color: var(--platinum-bright);
+  font-weight: 600;
+}
+.show.hard .showCap b {
+  color: var(--lime);
+}
+
+/* ---------------- WHAT YOU CAN DO (soft zone) ---------------- */
+.band {
+  padding: 50px 0;
+}
+@media (min-width: 768px) {
+  .band {
+    padding: 64px 0;
+  }
+}
+.bandHead {
+  max-width: 60ch;
+  margin-bottom: 28px;
+}
+.kicker {
+  font-size: 12.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--platinum-dim);
+  margin-bottom: 13px;
+}
+.bandTitle {
+  font-family: var(--font-display-stack);
+  font-weight: 500;
+  font-size: clamp(26px, 3.4vw, 38px);
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  color: var(--platinum-bright);
+  margin: 0 0 12px;
+}
+.bandLead {
+  font-size: 16px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+.capGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+@media (min-width: 560px) {
+  .capGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (min-width: 920px) {
+  .capGrid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+.cap {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 18px 16px;
+  background: rgba(199, 204, 209, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.capIcon {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-strong);
+  display: grid;
+  place-items: center;
+  color: var(--platinum);
+}
+.capIcon svg {
+  width: 17px;
+  height: 17px;
+}
+.capTitle {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--platinum-bright);
+  line-height: 1.3;
+}
+.capHelp {
+  font-size: 12.5px;
+  color: var(--text-faint);
+  line-height: 1.45;
+}
+
+/* ---------------- HOW IT WORKS (hard / proof zone) ---------------- */
+.proofZone {
+  border-top: 1px solid var(--hard-line);
+  border-bottom: 1px solid var(--hard-line);
+  background: var(--ink-900);
+}
+.hardHead {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 30px;
+}
+.idx {
+  font-family: var(--font-mono-stack);
+  font-size: 12px;
+  color: var(--lime);
+  letter-spacing: 0.1em;
+  flex: 0 0 auto;
+}
+.hardTitle {
+  font-family: var(--font-hard-stack);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-size: clamp(25px, 3.4vw, 38px);
+  line-height: 1.04;
+  color: var(--platinum-bright);
+  margin: 0;
+}
+.hardLead {
+  color: var(--text-dim);
+  font-size: 15px;
+  line-height: 1.55;
+  max-width: 56ch;
+  flex: 1 1 280px;
+  min-width: 0;
+}
+.stepGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  border: 1px solid var(--hard-line);
+}
+@media (min-width: 560px) {
+  .stepGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (min-width: 920px) {
+  .stepGrid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+.step {
+  padding: 22px 20px;
+  border-bottom: 1px solid var(--hard-line);
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+@media (min-width: 560px) {
+  .step {
+    border-bottom: 1px solid var(--hard-line);
+  }
+  .step:nth-child(odd) {
+    border-right: 1px solid var(--hard-line);
+  }
+  .step:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+}
+@media (min-width: 920px) {
+  .step {
+    border-bottom: 0;
+    border-right: 1px solid var(--hard-line);
+  }
+  .step:nth-child(odd) {
+    border-right: 1px solid var(--hard-line);
+  }
+  .step:last-child {
+    border-right: 0;
+  }
+}
+.stepIcon {
+  color: var(--lime);
+  height: 20px;
+}
+.stepIcon svg {
+  width: 20px;
+  height: 20px;
+}
+.stepNum {
+  font-family: var(--font-body-stack);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--platinum-dim);
+}
+.stepName {
+  font-family: var(--font-hard-stack);
+  font-weight: 700;
+  font-size: 15.5px;
+  color: var(--platinum-bright);
+  line-height: 1.2;
+}
+.stepDesc {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.hardMore {
+  margin-top: 24px;
+}
+.hardMore a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-body-stack);
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--lime);
+  border: 1px solid var(--hard-line-strong);
+  padding: 10px 16px;
+  transition: border-color 160ms var(--ease), background 160ms var(--ease);
+}
+.hardMore a svg {
+  width: 14px;
+  height: 14px;
+}
+@media (hover: hover) {
+  .hardMore a:hover {
+    border-color: var(--lime);
+    background: rgba(198, 255, 77, 0.06);
+  }
+}
+.hardMore a:active {
+  transform: scale(0.98);
+}
+
+/* ---------------- TRUST TEASER (hard zone) ---------------- */
+.trust {
+  border: 1px solid var(--hard-line-strong);
+  background: linear-gradient(180deg, #101012, #0f0f11);
+  padding: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.trustText {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  min-width: 0;
+}
+.trustIcon {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border: 1px solid var(--hard-line-strong);
+  display: grid;
+  place-items: center;
+  color: var(--lime);
+}
+.trustIcon svg {
+  width: 18px;
+  height: 18px;
+}
+.trustLine {
+  font-family: var(--font-hard-stack);
+  font-weight: 700;
+  font-size: 17px;
+  color: var(--platinum-bright);
+  line-height: 1.3;
+}
+.trustSub {
+  font-size: 13.5px;
+  color: var(--text-dim);
+  margin-top: 5px;
+  line-height: 1.5;
+}
+
+/* ---------------- FINAL CTA (soft zone) ---------------- */
+.final {
+  padding: 60px 0;
+  text-align: center;
+}
+@media (min-width: 768px) {
+  .final {
+    padding: 76px 0;
+  }
+}
+.finalCard {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-xl);
+  padding: 40px 26px;
+  background: linear-gradient(
+    165deg,
+    rgba(18, 22, 30, 0.7),
+    rgba(10, 12, 16, 0.7)
+  );
+  box-shadow: var(--shadow-card);
+}
+.finalTitle {
+  font-family: var(--font-display-stack);
+  font-weight: 500;
+  font-size: clamp(27px, 3.6vw, 40px);
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  color: var(--platinum-bright);
+  margin: 0 auto 14px;
+  max-width: 18ch;
+}
+.finalTitle em {
+  font-style: italic;
+  color: var(--lime);
+  font-weight: 500;
+}
+.finalSub {
+  font-size: 15.5px;
+  color: var(--text-dim);
+  line-height: 1.6;
+  max-width: 52ch;
+  margin: 0 auto 28px;
+}
+.finalCta {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.finalCta svg {
+  width: 17px;
+  height: 17px;
+}

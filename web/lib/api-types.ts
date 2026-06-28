@@ -40,6 +40,31 @@ export type StateResponse = {
   legs: { soroban: Source; reflector: Source; sepolia: Source };
 };
 
+/**
+ * Per-position live read for a user-supplied hashlock H. The collateral amount
+ * is DELIBERATELY absent: only the public threshold + loan facts are returned.
+ */
+export type PositionResponse = {
+  source: Source;
+  h: string;
+  /** Escrow lock on Sepolia. amount is NEVER included (privacy invariant). */
+  lock: { locked: boolean; closed: boolean } | null;
+  /** Vault loan, if a borrow has settled against this H. */
+  loan:
+    | {
+        principalUsdc: string;
+        thresholdWei: string;
+        repaid: boolean;
+        defaulted: boolean;
+        dueLedger: number;
+      }
+    | null;
+  /** Live ETH/USD from Reflector, for health math on the client. */
+  price: StatePrice;
+  /** Loan-to-value in percent, e.g. "25". */
+  ltv: string;
+};
+
 export type CheatResponse = {
   source: Source;
   /** True when the live vault rejected the tampered proof as expected. */

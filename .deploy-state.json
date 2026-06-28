@@ -1,0 +1,61 @@
+{
+  "status": "complete",
+  "working_dir": "/Users/MAC/stellar-hacks-zk",
+  "repo": "https://github.com/dmustapha/veil",
+  "repo_visibility": "public",
+  "live_url": "https://veilzk.vercel.app",
+  "vercel_project": "web (id prj_8CfplPPgHlGLTKjHQKakjaSTIG2U)",
+  "deployed_from": "web/ only (funds key in contracts/escrow/.env never exposed)",
+  "live_checks": {
+    "landing": "HTTP 200",
+    "app": "HTTP 200",
+    "api_state": "live (price ~$1581, loan 1.97, all legs live)",
+    "api_cheat": "live: Error(Crypto, InvalidInput) + replay Error(Contract, #7 NullifierUsed)"
+  },
+  "trace_removal": "untracked .conductor*/PULSE/pipeline-log/config.json/warroom/research/tasks/*-REPORT/*-PLAN/web ai+design from public tree; gitignored",
+  "secret_scan": "git history clean: no .env ever tracked, deployer key in 0 commits, no RPC keys",
+  "readme": "honest, ZK load-bearing prominent, verifier+cheat-fail evidence, contracts table, trust disclosure",
+  "license": "MIT",
+  "ssoProtection": "disabled (deployment public)",
+  "timestamp": "2026-06-27T08:55:00Z",
+  "phase_ledger": [
+    {
+      "phase": "setup",
+      "started_at": "2026-06-27T08:40:00Z",
+      "completed_at": "2026-06-27T08:41:00Z",
+      "evidence": "gh authed, vercel authed (damilolamustaphaa), deploy pre-gate pass"
+    },
+    {
+      "phase": "secret_scan",
+      "started_at": "2026-06-27T08:41:00Z",
+      "completed_at": "2026-06-27T08:43:00Z",
+      "evidence": "history clean: 0 .env tracked, deployer key 0 commits, 0x64hex hits are public tx/storage hashes"
+    },
+    {
+      "phase": "trace_removal",
+      "started_at": "2026-06-27T08:43:00Z",
+      "completed_at": "2026-06-27T08:47:00Z",
+      "evidence": "git rm --cached conductor/pulse/warroom/research/tasks/config/reports; gitignored; public tree trace-free"
+    },
+    {
+      "phase": "readme_license",
+      "started_at": "2026-06-27T08:47:00Z",
+      "completed_at": "2026-06-27T08:50:00Z",
+      "evidence": "README.md + LICENSE (MIT) written; contracts table + verifier link + cheat-fail evidence"
+    },
+    {
+      "phase": "publish",
+      "started_at": "2026-06-27T08:50:00Z",
+      "completed_at": "2026-06-27T08:52:00Z",
+      "evidence": "committed ec552e7/2db7e2b, pushed, gh repo edit --visibility public -> PUBLIC"
+    },
+    {
+      "phase": "vercel_deploy",
+      "started_at": "2026-06-27T08:52:00Z",
+      "completed_at": "2026-06-27T08:55:00Z",
+      "evidence": "vercel --prod from web/; alias veilzk.vercel.app; ssoProtection disabled; / /app /api/state /api/cheat all HTTP 200 live"
+    }
+  ],
+  "github_url": "https://github.com/dmustapha/veil",
+  "github_repo": "dmustapha/veil"
+}

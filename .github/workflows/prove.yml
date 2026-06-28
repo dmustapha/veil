@@ -7,6 +7,15 @@ name: prove
 
 on:
   workflow_dispatch:
+    inputs:
+      fixture_b64:
+        description: "base64 of a user's eth_getProof JSON (overwrites the committed fixture)"
+        required: false
+        default: ""
+      meta_b64:
+        description: "base64 of the matching fixture_meta JSON"
+        required: false
+        default: ""
   push:
     paths:
       - "guest/**"
@@ -44,6 +53,19 @@ jobs:
           free -h
           nproc
           rzup show || true
+
+      # When dispatched with a user's lock, overwrite the committed fixture so the host proves
+      # the USER's lock. The host (guest/host) and the guest are untouched: they read these two
+      # files exactly as before. With no inputs (push, or a plain dispatch) the committed pinned
+      # fixture is used, preserving the original behavior.
+      - name: Write user fixture (if provided)
+        if: ${{ github.event.inputs.fixture_b64 != '' }}
+        working-directory: guest/fixtures
+        run: |
+          printf '%s' "${{ github.event.inputs.fixture_b64 }}" | base64 -d > eth_getproof_pinned.json
+          printf '%s' "${{ github.event.inputs.meta_b64 }}" | base64 -d > fixture_meta.json
+          echo "Using user-supplied fixture:"
+          cat fixture_meta.json
 
       - name: Generate real Groth16 proof
         working-directory: guest
