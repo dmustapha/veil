@@ -87,5 +87,5 @@ export const DEPLOYED = {
 
 export const SITE = {
   networks: "Ethereum Sepolia + Stellar testnet",
-  live: "veil.vercel.app",
+  live: "https://veilzk.vercel.app",
 } as const;

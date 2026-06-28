@@ -1,0 +1,155 @@
+/* Signature 1: the frosted veil. Your amount, kept behind glass.
+   The real number never renders: only redaction blocks + the public threshold. */
+.veil {
+  position: relative;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line-strong);
+  overflow: hidden;
+  background: linear-gradient(
+    165deg,
+    rgba(199, 204, 209, 0.06),
+    rgba(10, 12, 16, 0.2)
+  );
+  padding: 22px;
+}
+
+.label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--platinum-dim);
+  margin-bottom: 16px;
+}
+.lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  letter-spacing: 0.05em;
+  color: var(--platinum);
+}
+.lock svg {
+  width: 13px;
+  height: 13px;
+}
+
+.stage {
+  position: relative;
+  height: 110px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.blocks {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono-stack);
+  font-size: clamp(40px, 8vw, 58px);
+  letter-spacing: 0.06em;
+  color: rgba(199, 204, 209, 0.32);
+  user-select: none;
+  z-index: 1;
+}
+
+/* frosted glass over the blocks: blur + inset top-edge highlight */
+.frost {
+  position: absolute;
+  inset: -1px;
+  z-index: 2;
+  border-radius: var(--r-lg);
+  -webkit-backdrop-filter: blur(11px) saturate(120%);
+  backdrop-filter: blur(11px) saturate(120%);
+  background: linear-gradient(
+    135deg,
+    rgba(236, 239, 242, 0.1) 0%,
+    rgba(199, 204, 209, 0.03) 40%,
+    rgba(198, 255, 77, 0.05) 100%
+  );
+  border: 1px solid rgba(236, 239, 242, 0.14);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.14) inset,
+    0 -1px 0 rgba(0, 0, 0, 0.3) inset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  overflow: hidden;
+}
+/* sheen sweep across the glass */
+.frost::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 45%;
+  left: -60%;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgba(236, 239, 242, 0.18),
+    transparent
+  );
+  transform: skewX(-18deg);
+  animation: veil-sheen 6.5s var(--ease) infinite;
+}
+@keyframes veil-sheen {
+  0%,
+  12% {
+    left: -60%;
+  }
+  55%,
+  100% {
+    left: 130%;
+  }
+}
+.glyph {
+  position: relative;
+  z-index: 3;
+  opacity: 0.85;
+  color: var(--platinum-bright);
+}
+.glyph svg {
+  width: 19px;
+  height: 19px;
+  display: block;
+}
+.hidden {
+  position: relative;
+  z-index: 3;
+  font-family: var(--font-display-stack);
+  font-style: italic;
+  font-weight: 500;
+  font-size: clamp(22px, 4.4vw, 30px);
+  color: var(--platinum-bright);
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 18px rgba(0, 0, 0, 0.6);
+}
+
+.foot {
+  margin-top: 18px;
+  font-size: 14px;
+  color: var(--platinum);
+}
+.foot b {
+  font-family: var(--font-display-stack);
+  font-weight: 600;
+  color: var(--platinum-bright);
+  font-size: 16px;
+}
+.foot .sub {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frost::before {
+    animation: none;
+    left: 130%;
+  }
+}

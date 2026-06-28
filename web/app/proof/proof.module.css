@@ -1,0 +1,237 @@
+/* ============================================================
+   /proof page: the Vault Terminal evidence room. Hard proof-zone
+   language (0px radii, hard hairlines, acid-lime integrity accent),
+   plain-language helper text, mono only for hashes / addresses /
+   seal / errors. Layout only; tokens + reveal live in globals.css.
+   ============================================================ */
+
+/* ---- header ---- */
+.header {
+  padding: 48px 0 6px;
+}
+
+/* ---- THE SEAL centerpiece ---- */
+.sealStage {
+  max-width: 880px;
+  margin: 0 auto;
+}
+.sealCaption {
+  max-width: 64ch;
+  margin: 20px auto 0;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.62;
+  color: var(--text-dim);
+}
+.sealCaption b {
+  color: var(--platinum-bright);
+  font-weight: 600;
+}
+.sealCaption .code {
+  font-family: var(--font-mono-stack);
+  color: var(--lime);
+  font-size: 13px;
+}
+
+/* ---- the journal: PUBLIC vs PRIVATE ---- */
+.journal {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+@media (max-width: 760px) {
+  .journal {
+    grid-template-columns: 1fr;
+  }
+}
+.col {
+  border: 1px solid var(--hard-line);
+  background: var(--ink-900);
+  display: flex;
+  flex-direction: column;
+}
+.colPrivate {
+  border-color: var(--hard-line-strong);
+  background: linear-gradient(165deg, rgba(18, 16, 16, 0.6), var(--ink-900));
+}
+.colHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--hard-line);
+}
+.colMark {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--hard-line-strong);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: var(--platinum);
+}
+.colPublic .colMark {
+  color: var(--lime);
+  border-color: var(--lime-dim);
+}
+.colMark svg {
+  width: 15px;
+  height: 15px;
+}
+.colTitle {
+  font-family: var(--font-body-stack);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--platinum-bright);
+}
+.colSub {
+  font-size: 12.5px;
+  color: var(--text-faint);
+  margin-top: 3px;
+  line-height: 1.45;
+}
+.rows {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+.row {
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--hard-line);
+}
+.row:last-child {
+  border-bottom: 0;
+}
+.rowTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.rowK {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 500;
+}
+.rowV {
+  font-family: var(--font-mono-stack);
+  font-size: 12.5px;
+  color: var(--platinum-bright);
+  word-break: break-all;
+  text-align: right;
+}
+.rowV.plain {
+  font-family: var(--font-body-stack);
+  color: var(--lime);
+  font-weight: 600;
+}
+.redact {
+  font-family: var(--font-mono-stack);
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  color: rgba(199, 204, 209, 0.34);
+  user-select: none;
+}
+.rowHelp {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+.note {
+  margin-top: 22px;
+  border-left: 2px solid var(--lime);
+  padding: 6px 0 6px 18px;
+  max-width: 78ch;
+  font-size: 14px;
+  line-height: 1.62;
+  color: var(--text-dim);
+}
+.note b {
+  color: var(--platinum-bright);
+  font-weight: 600;
+}
+
+/* ---- the verifier ---- */
+.verifier {
+  border: 1px solid var(--hard-line);
+  background: var(--ink-900);
+}
+.vfRow {
+  display: grid;
+  grid-template-columns: 168px 1fr;
+  gap: 8px 18px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--hard-line);
+  align-items: baseline;
+}
+.vfRow:last-child {
+  border-bottom: 0;
+}
+@media (max-width: 560px) {
+  .vfRow {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+}
+.vfK {
+  font-size: 12.5px;
+  letter-spacing: 0.03em;
+  color: var(--text-faint);
+}
+.vfV {
+  font-size: 14px;
+  color: var(--platinum-bright);
+  word-break: break-all;
+}
+.vfV.mono {
+  font-family: var(--font-mono-stack);
+  font-size: 13px;
+}
+.vfV.lime {
+  color: var(--lime);
+}
+.vfValueRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.vfLink {
+  font-size: 12px;
+  color: var(--lime);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--hard-line-strong);
+  padding: 5px 11px;
+  transition: border-color 160ms var(--ease), background 160ms var(--ease);
+}
+@media (hover: hover) {
+  .vfLink:hover {
+    border-color: var(--lime-dim);
+    background: rgba(198, 255, 77, 0.07);
+  }
+}
+.vfLink:active {
+  transform: scale(0.97);
+}
+.vfLink svg {
+  width: 12px;
+  height: 12px;
+}
+.vfHelp {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vfLink {
+    transition: none;
+  }
+}

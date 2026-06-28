@@ -1,13 +1,26 @@
 import type { Metadata } from "next";
-import { Fraunces, Hanken_Grotesk, JetBrains_Mono } from "next/font/google";
+import {
+  Fraunces,
+  Bricolage_Grotesque,
+  Hanken_Grotesk,
+  IBM_Plex_Mono,
+} from "next/font/google";
 import "./globals.css";
 import { Atmosphere } from "@/components/Atmosphere";
+import { Reveal } from "@/components/Reveal";
 
 const fraunces = Fraunces({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["400", "500", "600"],
   style: ["normal", "italic"],
   variable: "--font-display",
+  display: "swap",
+});
+
+const bricolage = Bricolage_Grotesque({
+  subsets: ["latin"],
+  weight: ["600", "700", "800"],
+  variable: "--font-hard",
   display: "swap",
 });
 
@@ -18,7 +31,7 @@ const hanken = Hanken_Grotesk({
   display: "swap",
 });
 
-const jetbrains = JetBrains_Mono({
+const plexMono = IBM_Plex_Mono({
   subsets: ["latin"],
   weight: ["400", "500", "600"],
   variable: "--font-mono",
@@ -26,9 +39,9 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Veil: borrow private, proven not revealed",
+  title: "Veil: borrow USDC, keep your balance hidden",
   description:
-    "Borrow on Stellar against collateral you keep on Ethereum, proven by a zero-knowledge proof that hides your amount and your identity.",
+    "Borrow USDC on Stellar against crypto you keep on Ethereum. A zero-knowledge proof shows you have enough without revealing how much or which wallet.",
 };
 
 export default function RootLayout({
@@ -36,11 +49,20 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const fontVars = `${fraunces.variable} ${hanken.variable} ${jetbrains.variable}`;
+  const fontVars = `${fraunces.variable} ${bricolage.variable} ${hanken.variable} ${plexMono.variable}`;
   return (
     <html lang="en">
-      <body className={`${fontVars} loaded`}>
+      <head>
+        {/* pre-paint: confirm JS so .reveal can hide before first paint */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: "document.documentElement.classList.add('js-ready')",
+          }}
+        />
+      </head>
+      <body className={fontVars}>
         <Atmosphere />
+        <Reveal />
         {children}
       </body>
     </html>

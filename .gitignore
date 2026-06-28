@@ -54,3 +54,9 @@ debug-results/
 web/ai/
 web/DESIGN_SYSTEM.md
 web/design/
+
+# more pipeline artifacts (local only)
+LIVETEST-REPORT.md
+TESTING-PLAN.md
+.livetest-state.json
+web/tasks/

@@ -1,37 +1,63 @@
 /* ============================================================
-   VEIL design system (ported from design/proposals/A-frosted-vault)
-   Locked tokens per web/DESIGN_SYSTEM.md. Plain CSS, no Tailwind.
-   Font family names come from next/font variables set in layout.tsx:
-   --font-display (Fraunces) · --font-body (Hanken Grotesk) · --font-mono (JetBrains Mono)
+   VEIL design system: H2 "Vault Terminal" hybrid (zoned soft/hard).
+   Soft-luxe money zones (soft radii, platinum) + hard-brutalist proof
+   zones (0px hairlines, acid-lime integrity accent). Plain CSS.
+   Fonts come from next/font variables set in layout.tsx:
+     --font-display (Fraunces, privacy display)
+     --font-hard    (Bricolage Grotesque, structural display)
+     --font-body    (Hanken Grotesk, body)
+     --font-mono    (IBM Plex Mono, data/hashes/seal/errors only)
+   Legacy /app tokens (--steel*, --danger*) are aliased below so the
+   /app route keeps rendering until its full restyle (next unit).
    ============================================================ */
 
 /* ============================ TOKENS ============================ */
 :root {
+  /* ink world */
   --ink-900: #07090c;
   --ink-850: #0a0c10;
   --ink-800: #0e1117;
   --ink-700: #141822;
   --ink-600: #1b212d;
+
+  /* soft hairlines (money zones) */
   --line: rgba(199, 204, 209, 0.1);
   --line-strong: rgba(199, 204, 209, 0.18);
+  /* hard hairlines (proof zones) */
+  --hard-line: #26262a;
+  --hard-line-strong: #3a3a40;
 
+  /* brand platinum */
   --platinum: #c7ccd1;
   --platinum-bright: #eceff2;
-  --platinum-dim: #8a929c;
-  --platinum-faint: #5c636e;
+  --platinum-dim: #9ba3ad;
+  --platinum-faint: #6a717c;
 
-  --steel: #7fa8d6; /* cold steel-blue: verified / safe */
-  --steel-bright: #a8c7ec;
-  --steel-glow: rgba(127, 168, 214, 0.3);
+  /* verified accent: acid lime, reserved for verified state + the seal */
+  --lime: #c6ff4d;
+  --lime-dim: #a4d93c;
+  --lime-ink: #07090c;
+  --lime-glow: rgba(198, 255, 77, 0.3);
 
-  --danger: #e06a6a;
-  --danger-bright: #f2a0a0;
-  --danger-glow: rgba(224, 106, 106, 0.22);
+  /* danger */
+  --red: #ff564c;
+  --red-dim: #c42820;
+  --red-bright: #ff8079;
+  --red-glow: rgba(255, 59, 48, 0.18);
 
   --text: #dce0e4;
-  --text-dim: #9aa2ac;
-  --text-faint: #6b727c;
+  --text-dim: #a4abb4;
+  --text-faint: #838b95;
 
+  /* aliases so legacy /app components do not break (retired this unit) */
+  --steel: var(--lime);
+  --steel-bright: var(--lime);
+  --steel-glow: var(--lime-glow);
+  --danger: var(--red);
+  --danger-bright: var(--red-bright);
+  --danger-glow: var(--red-glow);
+
+  /* soft radii (money zones); proof zones use 0px */
   --r-sm: 8px;
   --r-md: 14px;
   --r-lg: 20px;
@@ -39,11 +65,12 @@
 
   --shadow-card: 0 24px 60px -28px rgba(0, 0, 0, 0.85),
     0 2px 0 rgba(255, 255, 255, 0.02) inset;
-  --maxw: 1180px;
+  --maxw: 1200px;
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
 
-  /* font tokens (resolved by next/font in layout.tsx) */
+  /* font stacks (families resolved by next/font in layout.tsx) */
   --font-display-stack: var(--font-display), serif;
+  --font-hard-stack: var(--font-hard), sans-serif;
   --font-body-stack: var(--font-body), sans-serif;
   --font-mono-stack: var(--font-mono), monospace;
 }
@@ -66,14 +93,51 @@ html {
 
 body {
   margin: 0;
-  background: var(--ink-850);
+  background: var(--ink-900);
   color: var(--text);
   font-family: var(--font-body-stack);
   font-size: 16px;
-  line-height: 1.55;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow-x: hidden;
+  min-height: 100vh;
+}
+
+::selection {
+  background: var(--lime);
+  color: var(--lime-ink);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+/* standard Lucide icon sizing (overridable per-use) */
+svg.lucide {
+  width: 1em;
+  height: 1em;
+  stroke-width: 2;
+  flex: 0 0 auto;
+  vertical-align: -0.12em;
+}
+
+/* plain-language helper text + dotted inline terms */
+.help {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+.term {
+  border-bottom: 1px dotted var(--platinum-faint);
+  cursor: help;
 }
 
 /* ============================ ATMOSPHERE ============================ */
@@ -83,48 +147,77 @@ body {
   z-index: 0;
   pointer-events: none;
   background: radial-gradient(
-      120% 80% at 50% -10%,
-      rgba(127, 168, 214, 0.1) 0%,
-      rgba(127, 168, 214, 0) 45%
+      120% 70% at 50% -8%,
+      rgba(199, 204, 209, 0.07) 0%,
+      rgba(199, 204, 209, 0) 46%
     ),
     radial-gradient(
-      80% 60% at 82% 8%,
-      rgba(199, 204, 209, 0.06) 0%,
-      rgba(199, 204, 209, 0) 50%
+      80% 50% at 84% 6%,
+      rgba(198, 255, 77, 0.05) 0%,
+      rgba(198, 255, 77, 0) 52%
     ),
     radial-gradient(
-      90% 70% at 12% 30%,
-      rgba(40, 52, 72, 0.35) 0%,
-      rgba(40, 52, 72, 0) 55%
+      90% 60% at 10% 26%,
+      rgba(40, 52, 72, 0.3) 0%,
+      rgba(40, 52, 72, 0) 56%
     ),
-    linear-gradient(180deg, #0b0e13 0%, #090b10 40%, #07090c 100%);
+    linear-gradient(180deg, #0b0e13 0%, #090b10 50%, var(--ink-900) 100%);
 }
-/* single cold focal glow behind hero */
+/* focal glow behind hero */
 .focal-glow {
   position: fixed;
-  top: 8vh;
+  top: 9vh;
   left: 50%;
   transform: translateX(-50%);
-  width: min(820px, 92vw);
+  width: min(860px, 92vw);
   height: 520px;
   z-index: 0;
   pointer-events: none;
   background: radial-gradient(
     50% 50% at 50% 50%,
-    rgba(127, 168, 214, 0.16) 0%,
-    rgba(127, 168, 214, 0.05) 38%,
-    rgba(127, 168, 214, 0) 70%
+    rgba(199, 204, 209, 0.12) 0%,
+    rgba(199, 204, 209, 0.04) 40%,
+    rgba(199, 204, 209, 0) 70%
   );
-  filter: blur(8px);
+  filter: blur(10px);
 }
 .grain {
   position: fixed;
   inset: 0;
   z-index: 1;
   pointer-events: none;
-  opacity: 0.4;
+  opacity: 0.34;
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+}
+/* faint lime seal-hex wallpaper (seeded from the real selector) */
+.seal-wallpaper {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  user-select: none;
+  overflow: hidden;
+  padding: 28px;
+  font-family: var(--font-mono-stack);
+  font-size: 13px;
+  line-height: 1.5;
+  letter-spacing: 0.18em;
+  color: var(--lime);
+  opacity: 0.03;
+  word-break: break-all;
+  -webkit-mask-image: radial-gradient(
+    120% 90% at 78% 4%,
+    #000 0%,
+    #000 34%,
+    transparent 78%
+  );
+  mask-image: radial-gradient(
+    120% 90% at 78% 4%,
+    #000 0%,
+    #000 34%,
+    transparent 78%
+  );
 }
 
 /* ============================ LAYOUT ============================ */
@@ -150,13 +243,14 @@ a {
   letter-spacing: -0.01em;
 }
 
-/* focus visibility */
+/* focus visibility: the outline follows each element's NATIVE shape (square in
+   brutalist proof zones, pill on chips, soft on money-zone buttons) — never force
+   a radius here, or focusing a square control morphs its corners. */
 a:focus-visible,
 button:focus-visible,
 .chip:focus-visible {
   outline: 2px solid var(--steel-bright);
   outline-offset: 3px;
-  border-radius: var(--r-sm);
 }
 
 /* ============================ HEADER ============================ */
@@ -1556,43 +1650,80 @@ button.wallet-chip:active {
 }
 
 /* ============================ ENTRANCE ANIMATION ============================ */
+/* Bulletproof reveal: visible by default (no-JS safe), hidden only once JS
+   is confirmed via html.js-ready, then animated in by the Reveal observer
+   (with a 1500ms hard fallback in Reveal.tsx that never strands content). */
 .reveal {
+  opacity: 1;
+}
+html.js-ready .reveal {
   opacity: 0;
-  transform: translateY(18px);
 }
-.loaded .reveal {
-  animation: rise 0.85s var(--ease) forwards;
+html.js-ready .reveal.in {
+  animation: rr-reveal 1s var(--ease) both;
+  will-change: opacity, transform, filter;
 }
-@keyframes rise {
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+
+/* stagger for landing markup */
+.reveal[data-d="1"] {
+  animation-delay: 0.08s;
 }
-.loaded .d1 {
-  animation-delay: 0.05s;
+.reveal[data-d="2"] {
+  animation-delay: 0.16s;
 }
-.loaded .d2 {
-  animation-delay: 0.13s;
+.reveal[data-d="3"] {
+  animation-delay: 0.24s;
 }
-.loaded .d3 {
-  animation-delay: 0.21s;
+.reveal[data-d="4"] {
+  animation-delay: 0.32s;
 }
-.loaded .d4 {
+.reveal[data-d="5"] {
+  animation-delay: 0.42s;
+}
+.reveal[data-d="6"] {
+  animation-delay: 0.5s;
+}
+
+/* legacy stagger for existing /app markup (className "reveal d1..d6") */
+.d1 {
+  animation-delay: 0.06s;
+}
+.d2 {
+  animation-delay: 0.14s;
+}
+.d3 {
+  animation-delay: 0.22s;
+}
+.d4 {
   animation-delay: 0.3s;
 }
-.loaded .d5 {
+.d5 {
   animation-delay: 0.4s;
 }
-.loaded .d6 {
-  animation-delay: 0.52s;
+.d6 {
+  animation-delay: 0.5s;
+}
+
+@keyframes rr-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(26px) scale(0.985);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .reveal {
-    opacity: 1 !important;
-    transform: none !important;
-    animation: none !important;
+  /* Keep the reveal keyframe ON (RefiRail rule): some displays/browsers MISreport
+     reduced-motion, and killing the reveal leaves the whole page feeling dead. The
+     reveal is a gentle fade/rise, not a vestibular trigger. Only the infinite loops
+     (sheen, spin, pulse) are disabled below. */
+  html.js-ready .reveal.in {
+    animation: rr-reveal 0.7s var(--ease) both;
   }
   .frost::before {
     animation: none;
@@ -1608,5 +1739,338 @@ button.wallet-chip:active {
   }
   * {
     scroll-behavior: auto;
+  }
+}
+
+/* ============================================================
+   APP WORKSPACE v2 (real, H2 hybrid). Soft-luxe money zones
+   (forms, positions) + hard proof zones (seal grids, cheat).
+   ============================================================ */
+
+.app-bar-wrap {
+  padding-top: 10px;
+}
+.app-body {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  padding: 8px 0 24px;
+}
+.app-section-head {
+  max-width: 64ch;
+}
+h2.app-h2,
+.app-h2 {
+  font-family: var(--font-display-stack);
+  font-weight: 500;
+  font-size: clamp(22px, 3vw, 30px);
+  letter-spacing: -0.015em;
+  color: var(--platinum-bright);
+  margin: 0 0 8px;
+}
+
+/* wrong-network wallet chip */
+.wallet-chip.warn {
+  border-color: rgba(255, 86, 76, 0.45);
+  background: rgba(255, 86, 76, 0.08);
+  color: var(--red-bright);
+}
+@media (hover: hover) {
+  button.wallet-chip.warn:hover {
+    border-color: var(--red);
+    background: rgba(255, 86, 76, 0.12);
+  }
+}
+
+/* ---- forms ---- */
+.app-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.app-field {
+  flex: 1 1 220px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.app-field.narrow {
+  flex: 0 0 140px;
+}
+.app-label {
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+  padding: 0;
+}
+.app-input {
+  width: 100%;
+  font-size: 16px;
+  color: var(--platinum-bright);
+  background: var(--ink-700);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+  transition: border-color 160ms var(--ease), background 160ms var(--ease);
+}
+.app-input::placeholder {
+  color: var(--text-faint);
+}
+.app-input:focus-visible {
+  outline: 2px solid var(--lime);
+  outline-offset: 2px;
+  border-color: var(--lime-dim);
+}
+.app-field .help {
+  margin-top: 8px;
+}
+
+.seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.seg-btn {
+  font-family: var(--font-body-stack);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: border-color 160ms var(--ease), color 160ms var(--ease),
+    background 160ms var(--ease);
+}
+@media (hover: hover) {
+  .seg-btn:hover {
+    border-color: var(--platinum-dim);
+    color: var(--platinum-bright);
+  }
+}
+.seg-btn:active {
+  transform: scale(0.98);
+}
+.seg-btn.on {
+  border-color: var(--lime);
+  color: var(--lime);
+  background: rgba(198, 255, 77, 0.08);
+}
+.app-cta {
+  width: 100%;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+/* ---- notices ---- */
+.app-notice {
+  margin: 12px 0 0;
+  padding: 11px 14px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid var(--line);
+}
+.app-notice.info {
+  color: var(--text-dim);
+  background: rgba(199, 204, 209, 0.03);
+}
+.app-notice.error {
+  color: var(--red-bright);
+  border-color: rgba(255, 86, 76, 0.35);
+  background: rgba(255, 86, 76, 0.07);
+}
+.app-notice.ok {
+  color: var(--lime);
+  border-color: rgba(198, 255, 77, 0.35);
+  background: rgba(198, 255, 77, 0.06);
+}
+
+/* ---- positions ---- */
+.open-row {
+  margin-bottom: 6px;
+}
+.pos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 20px;
+}
+@media (max-width: 460px) {
+  .pos-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-lg);
+  padding: 44px 24px;
+  color: var(--text-faint);
+  font-size: 14px;
+}
+.empty svg {
+  width: 26px;
+  height: 26px;
+  color: var(--platinum-dim);
+}
+
+.pos-pill {
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.pos-pill.open {
+  color: var(--platinum);
+}
+.pos-pill.active {
+  color: var(--lime);
+  border-color: rgba(198, 255, 77, 0.4);
+  background: rgba(198, 255, 77, 0.07);
+}
+.pos-pill.repaid {
+  color: var(--platinum-dim);
+}
+.pos-pill.defaulted {
+  color: var(--red-bright);
+  border-color: rgba(255, 86, 76, 0.4);
+  background: rgba(255, 86, 76, 0.07);
+}
+
+.pos-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 18px 0 4px;
+}
+.pos-fact {
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  background: rgba(199, 204, 209, 0.02);
+  min-width: 0;
+}
+.pf-k {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 5px;
+}
+.pf-v {
+  display: block;
+  font-size: 14px;
+  color: var(--platinum-bright);
+  word-break: break-word;
+}
+
+.pos-actions {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pos-actions .btn {
+  width: 100%;
+  justify-content: center;
+}
+.pos-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 6px 0 2px;
+}
+.pos-sub-title {
+  font-size: 13px;
+  color: var(--platinum-dim);
+  font-weight: 600;
+}
+
+/* ---- borrow / repay / use ---- */
+.borrow-flow,
+.repay-flow,
+.use-usdc {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.prove-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.proving-note {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+/* ---- cheat playground ---- */
+.cheat-play .btn-danger,
+.cheat-play .help {
+  margin-top: 14px;
+}
+.cheat-out {
+  margin-top: 14px;
+  border: 1px solid rgba(255, 86, 76, 0.32);
+  border-radius: var(--r-md);
+  background: rgba(255, 86, 76, 0.05);
+  padding: 14px 16px;
+}
+.cheat-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--red-bright);
+}
+.cheat-tag svg {
+  width: 14px;
+  height: 14px;
+}
+.cheat-code {
+  font-size: 13px;
+  color: var(--red-bright);
+  margin: 9px 0 4px;
+}
+.cheat-reason {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+/* ---- lime spinner ---- */
+.spin-lime {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid rgba(198, 255, 77, 0.3);
+  border-top-color: var(--lime);
+  animation: spin 0.7s linear infinite;
+  flex: 0 0 auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin-lime {
+    animation: none;
+  }
+  .app-input,
+  .seg-btn {
+    transition: none !important;
   }
 }

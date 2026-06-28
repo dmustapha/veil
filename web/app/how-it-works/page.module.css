@@ -1,0 +1,722 @@
+/* ============================================================
+   How it works (educational). Zoned hybrid: soft-luxe money zones
+   (collateral, repayment) + hard-brutalist proof zones (the proof,
+   trust, tech). Shared .btn/.wrap/tokens come from globals.css.
+   ============================================================ */
+
+/* ---------------- HEADER (soft zone) ---------------- */
+.hero {
+  padding: 46px 0 22px;
+}
+@media (min-width: 768px) {
+  .hero {
+    padding: 62px 0 30px;
+  }
+}
+.kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--platinum-dim);
+  margin-bottom: 22px;
+}
+.kicker .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 10px var(--lime-glow);
+}
+.title {
+  font-family: var(--font-display-stack);
+  font-weight: 500;
+  font-size: clamp(36px, 6vw, 68px);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  margin: 0 0 22px;
+  color: var(--platinum-bright);
+  max-width: 17ch;
+}
+.title em {
+  font-style: italic;
+  color: var(--lime);
+  font-weight: 500;
+}
+.lead {
+  font-size: clamp(16px, 1.9vw, 19px);
+  line-height: 1.62;
+  color: var(--text);
+  max-width: 62ch;
+  margin: 0;
+}
+.lead b {
+  color: var(--platinum-bright);
+  font-weight: 600;
+}
+
+/* ---------------- SECTION SHELL ---------------- */
+.band {
+  padding: 48px 0;
+}
+@media (min-width: 768px) {
+  .band {
+    padding: 62px 0;
+  }
+}
+.head {
+  max-width: 62ch;
+  margin-bottom: 30px;
+}
+.headKicker {
+  font-size: 12.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--platinum-dim);
+  margin-bottom: 13px;
+}
+.headTitle {
+  font-family: var(--font-display-stack);
+  font-weight: 500;
+  font-size: clamp(26px, 3.4vw, 38px);
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  color: var(--platinum-bright);
+  margin: 0 0 12px;
+}
+.headLead {
+  font-size: 16px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+/* hard section head: numbered index [ 0n ] */
+.hardHead {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 30px;
+}
+.idx {
+  font-family: var(--font-mono-stack);
+  font-size: 12px;
+  color: var(--lime);
+  letter-spacing: 0.1em;
+  flex: 0 0 auto;
+}
+.hardTitle {
+  font-family: var(--font-hard-stack);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-size: clamp(24px, 3.2vw, 36px);
+  line-height: 1.05;
+  color: var(--platinum-bright);
+  margin: 0;
+}
+.hardLead {
+  color: var(--text-dim);
+  font-size: 15px;
+  line-height: 1.55;
+  max-width: 58ch;
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+/* ---------------- FLOW (no bridge banner + step cards) ---------------- */
+.bridge {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  align-items: stretch;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  padding: 18px;
+  margin-bottom: 26px;
+  background: linear-gradient(165deg, rgba(199, 204, 209, 0.04), rgba(10, 12, 16, 0.2));
+}
+@media (min-width: 720px) {
+  .bridge {
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 20px;
+    padding: 20px 24px;
+  }
+}
+.bridgeChain {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+.bridgeChain .chip {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-strong);
+  display: grid;
+  place-items: center;
+  color: var(--platinum);
+}
+.bridgeChain.proof .chip {
+  color: var(--lime);
+  border-color: rgba(198, 255, 77, 0.4);
+  background: rgba(198, 255, 77, 0.05);
+}
+.bridgeChain .chip svg {
+  width: 18px;
+  height: 18px;
+}
+.bridgeChain .lab {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--platinum-bright);
+  line-height: 1.25;
+}
+.bridgeChain .sub {
+  display: block;
+  font-size: 12.5px;
+  color: var(--text-faint);
+  font-weight: 400;
+  margin-top: 3px;
+  line-height: 1.4;
+}
+.bridgeMid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  color: var(--lime);
+  text-align: center;
+  padding: 4px 0;
+}
+.bridgeMid svg {
+  width: 22px;
+  height: 22px;
+}
+.bridgeMid span {
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--lime-dim);
+  white-space: nowrap;
+}
+@media (max-width: 719px) {
+  .bridgeMid {
+    flex-direction: row;
+    justify-content: center;
+  }
+  .bridgeMid svg {
+    transform: rotate(90deg);
+  }
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+@media (min-width: 700px) {
+  .steps {
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+}
+.stepCard {
+  position: relative;
+  padding: 24px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+/* soft step = money zone (lock, repay/unlock) */
+.stepCard.soft {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  background: linear-gradient(180deg, rgba(20, 24, 34, 0.9), rgba(12, 15, 21, 0.92));
+  box-shadow: var(--shadow-card);
+}
+/* hard step = proof zone (prove, verify) */
+.stepCard.hard {
+  border: 1px solid var(--hard-line-strong);
+  border-radius: 0;
+  background: linear-gradient(180deg, #101012, #0f0f11);
+}
+.stepTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.stepNum {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--platinum-dim);
+}
+.stepNum .nBadge {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  font-family: var(--font-mono-stack);
+  font-size: 12px;
+  color: var(--platinum);
+}
+.stepCard.hard .stepNum .nBadge {
+  border-radius: 0;
+  border-color: var(--hard-line-strong);
+  color: var(--lime);
+}
+.chainTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(199, 204, 209, 0.03);
+  white-space: nowrap;
+}
+.stepCard.hard .chainTag {
+  border-radius: 0;
+}
+.glyph {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.glyph.eth {
+  background: var(--platinum);
+}
+.glyph.xlm {
+  background: var(--lime);
+  box-shadow: 0 0 8px var(--lime-glow);
+}
+.stepIcon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-strong);
+  color: var(--platinum);
+}
+.stepCard.hard .stepIcon {
+  border-radius: 0;
+  border-color: var(--hard-line-strong);
+  color: var(--lime);
+}
+.stepIcon svg {
+  width: 19px;
+  height: 19px;
+}
+.stepTitle {
+  font-weight: 600;
+  font-size: 17.5px;
+  line-height: 1.25;
+  color: var(--platinum-bright);
+}
+.stepCard.soft .stepTitle {
+  font-family: var(--font-display-stack);
+}
+.stepCard.hard .stepTitle {
+  font-family: var(--font-hard-stack);
+  font-weight: 700;
+}
+.stepText {
+  font-size: 14px;
+  color: var(--text-dim);
+  line-height: 1.6;
+  margin: 0;
+}
+.stepText b {
+  color: var(--platinum-bright);
+  font-weight: 600;
+}
+.stepCard.hard .stepText b {
+  color: var(--lime);
+}
+.stepText .mono {
+  font-size: 12.5px;
+  color: var(--platinum-dim);
+}
+
+/* ---------------- PRIVATE vs PUBLIC (soft zone) ---------------- */
+.contrast {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+@media (min-width: 820px) {
+  .contrast {
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+}
+.cCard {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.cCard.private {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-xl);
+  background: linear-gradient(165deg, rgba(127, 168, 214, 0.05), rgba(10, 12, 16, 0.25));
+  box-shadow: var(--shadow-card);
+}
+.cCard.public {
+  border: 1px solid var(--hard-line-strong);
+  border-radius: 0;
+  background: linear-gradient(180deg, #101012, #0f0f11);
+}
+.cHead {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.cHead .cIcon {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  color: var(--platinum);
+}
+.cCard.public .cHead .cIcon {
+  border-radius: 0;
+  border-color: rgba(198, 255, 77, 0.4);
+  color: var(--lime);
+}
+.cHead .cIcon svg {
+  width: 17px;
+  height: 17px;
+}
+.cTitle {
+  font-weight: 600;
+  font-size: 17px;
+  color: var(--platinum-bright);
+}
+.cCard.private .cTitle {
+  font-family: var(--font-display-stack);
+}
+.cCard.public .cTitle {
+  font-family: var(--font-hard-stack);
+  font-weight: 700;
+}
+.cTag {
+  display: block;
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-top: 3px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.cCard.public .cTag {
+  color: var(--lime-dim);
+}
+.cList {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cItem {
+  display: flex;
+  gap: 11px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+.cItem .mk {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--platinum-dim);
+}
+.cCard.public .cItem .mk {
+  color: var(--lime);
+}
+.cItem .mk svg {
+  width: 15px;
+  height: 15px;
+}
+.cItem b {
+  color: var(--platinum-bright);
+  font-weight: 600;
+}
+.cItem .mono {
+  font-family: var(--font-mono-stack);
+  font-size: 12.5px;
+  color: var(--platinum);
+  word-break: break-all;
+}
+.cWhy {
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  border-left: 2px solid var(--lime);
+  padding: 4px 0 4px 16px;
+}
+.cWhy b {
+  color: var(--platinum-bright);
+  font-weight: 600;
+}
+
+/* ---------------- HARD ZONE WRAPPER (trust + tech) ---------------- */
+.proofZone {
+  border-top: 1px solid var(--hard-line);
+  border-bottom: 1px solid var(--hard-line);
+  background: var(--ink-900);
+}
+
+/* trust list */
+.trustList {
+  display: grid;
+  grid-template-columns: 1fr;
+  border: 1px solid var(--hard-line);
+}
+@media (min-width: 720px) {
+  .trustList {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.trustItem {
+  padding: 20px 20px;
+  border-bottom: 1px solid var(--hard-line);
+  display: flex;
+  gap: 13px;
+}
+@media (min-width: 720px) {
+  .trustItem:nth-child(odd) {
+    border-right: 1px solid var(--hard-line);
+  }
+  .trustItem:nth-last-child(-n + 2):nth-child(odd) {
+    border-bottom: 0;
+  }
+  .trustItem:last-child {
+    border-bottom: 0;
+  }
+}
+.trustItem .tMark {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--platinum-dim);
+}
+.trustItem .tMark svg {
+  width: 17px;
+  height: 17px;
+}
+.tBody .tName {
+  font-family: var(--font-hard-stack);
+  font-weight: 700;
+  font-size: 14.5px;
+  color: var(--platinum-bright);
+  line-height: 1.3;
+  margin-bottom: 5px;
+}
+.tBody .tDesc {
+  font-size: 13.5px;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+.tBody .tDesc .future {
+  color: var(--lime);
+  font-weight: 600;
+}
+.trustNote {
+  margin-top: 18px;
+  font-size: 13.5px;
+  color: var(--text-faint);
+  line-height: 1.6;
+  max-width: 70ch;
+  display: flex;
+  gap: 10px;
+}
+.trustNote svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--platinum-dim);
+}
+
+/* tech list */
+.techList {
+  border: 1px solid var(--hard-line);
+}
+.techRow {
+  display: grid;
+  grid-template-columns: 1fr;
+  border-bottom: 1px solid var(--hard-line);
+}
+.techRow:last-child {
+  border-bottom: 0;
+}
+@media (min-width: 680px) {
+  .techRow {
+    grid-template-columns: 220px 1fr;
+    align-items: center;
+  }
+}
+.techKey {
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border-bottom: 1px solid var(--hard-line);
+}
+@media (min-width: 680px) {
+  .techKey {
+    border-bottom: 0;
+    border-right: 1px solid var(--hard-line);
+  }
+}
+.techKey .tkIcon {
+  color: var(--lime);
+  display: grid;
+  place-items: center;
+}
+.techKey .tkIcon svg {
+  width: 17px;
+  height: 17px;
+}
+.techKey .tkName {
+  font-family: var(--font-hard-stack);
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--platinum-bright);
+  letter-spacing: 0.01em;
+}
+.techVal {
+  padding: 16px 18px;
+  font-size: 13.5px;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+.techVal .mono {
+  font-family: var(--font-mono-stack);
+  font-size: 12.5px;
+  color: var(--lime);
+}
+.techLinks {
+  margin-top: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.techLinks a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-body-stack);
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--lime);
+  border: 1px solid var(--hard-line-strong);
+  padding: 11px 17px;
+  transition: border-color 160ms var(--ease), background 160ms var(--ease),
+    color 160ms var(--ease);
+}
+.techLinks a svg {
+  width: 15px;
+  height: 15px;
+}
+@media (hover: hover) {
+  .techLinks a:hover {
+    border-color: var(--lime);
+    background: rgba(198, 255, 77, 0.06);
+  }
+}
+.techLinks a:active {
+  transform: scale(0.98);
+}
+
+/* ---------------- CLOSING (soft zone) ---------------- */
+.final {
+  padding: 60px 0;
+  text-align: center;
+}
+@media (min-width: 768px) {
+  .final {
+    padding: 76px 0;
+  }
+}
+.finalCard {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-xl);
+  padding: 40px 26px;
+  background: linear-gradient(165deg, rgba(18, 22, 30, 0.7), rgba(10, 12, 16, 0.7));
+  box-shadow: var(--shadow-card);
+}
+.finalTitle {
+  font-family: var(--font-display-stack);
+  font-weight: 500;
+  font-size: clamp(26px, 3.4vw, 38px);
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  color: var(--platinum-bright);
+  margin: 0 auto 14px;
+  max-width: 20ch;
+}
+.finalTitle em {
+  font-style: italic;
+  color: var(--lime);
+  font-weight: 500;
+}
+.finalSub {
+  font-size: 15.5px;
+  color: var(--text-dim);
+  line-height: 1.6;
+  max-width: 54ch;
+  margin: 0 auto 28px;
+}
+.finalCta {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.finalCta svg {
+  width: 17px;
+  height: 17px;
+}
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 24px;
+  font-size: 13.5px;
+  color: var(--text-faint);
+  transition: color 160ms var(--ease);
+}
+.backLink svg {
+  width: 14px;
+  height: 14px;
+}
+@media (hover: hover) {
+  .backLink:hover {
+    color: var(--platinum-bright);
+  }
+}
+.backLink:active {
+  color: var(--platinum);
+}

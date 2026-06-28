@@ -1,0 +1,155 @@
+/* Signature 2: the 260-byte Groth16 seal as an object. Hard-brutalist proof
+   zone: 0px radii, hard hairlines, acid-lime when verified, red when forged. */
+.seal {
+  border: 1px solid var(--hard-line);
+  background: var(--ink-900);
+  position: relative;
+  overflow: hidden;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--hard-line);
+  font-family: var(--font-mono-stack);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+.lhs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.sel {
+  color: var(--lime);
+}
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 9px;
+  border: 1px solid var(--hard-line-strong);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-faint);
+  font-size: 10px;
+}
+.state .sd {
+  width: 6px;
+  height: 6px;
+  background: var(--platinum-faint);
+}
+.isLocked .state {
+  color: var(--lime);
+  border-color: var(--lime-dim);
+}
+.isLocked .state .sd {
+  background: var(--lime);
+}
+.isForged .state {
+  color: var(--red);
+  border-color: var(--red-dim);
+}
+.isForged .state .sd {
+  background: var(--red);
+}
+
+.bytes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(24px, 1fr));
+  gap: 1px;
+  background: var(--hard-line);
+  padding: 1px;
+}
+.byte {
+  background: #0d0d0f;
+  color: var(--platinum-faint);
+  font-family: var(--font-mono-stack);
+  font-size: 11px;
+  text-align: center;
+  padding: 5px 0;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  transform: translate(0, 0) rotate(0deg);
+}
+.byte.selByte {
+  color: var(--lime);
+  background: #101204;
+  font-weight: 600;
+}
+.isLocked .byte {
+  color: var(--platinum);
+  background: #0e1108;
+  transition: background 0.26s var(--ease), color 0.26s var(--ease);
+}
+.isLocked .byte.selByte {
+  color: var(--lime);
+  background: #141a05;
+}
+.isForged .byte {
+  color: var(--red);
+  background: #190b0a;
+  transform: translate(var(--dx, 0), var(--dy, 0)) rotate(var(--dr, 0));
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.2s ease,
+    color 0.2s ease;
+}
+
+.cap {
+  font-family: var(--font-body-stack);
+  font-size: 11.5px;
+  color: var(--text-faint);
+  padding: 10px 14px;
+  border-top: 1px solid var(--hard-line);
+  line-height: 1.45;
+}
+
+/* one-time verify sweep when locked */
+.sweep {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgba(198, 255, 77, 0.16),
+    transparent
+  );
+  transform: skewX(-16deg);
+  opacity: 0;
+}
+.isLocked .sweep {
+  animation: seal-sweep 1.4s var(--ease) 0.15s 1;
+}
+@keyframes seal-sweep {
+  0% {
+    transform: translateX(-120%) skewX(-16deg);
+    opacity: 0;
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(120%) skewX(-16deg);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .isLocked .byte,
+  .isForged .byte {
+    transition: none;
+  }
+  .isForged .byte {
+    transform: none;
+  }
+  .isLocked .sweep {
+    animation: none;
+  }
+}

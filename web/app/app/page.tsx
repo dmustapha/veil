@@ -1,35 +1,33 @@
-import Link from "next/link";
 import { Nav } from "@/components/Nav";
-import { LiveWorkspace } from "@/components/LiveWorkspace";
+import { AppWorkspace } from "@/components/app/AppWorkspace";
 import { DeployedContracts } from "@/components/DeployedContracts";
 import { SiteFooter } from "@/components/SiteFooter";
+import { SITE } from "@/lib/constants";
 
 export const metadata = {
-  title: "Veil workspace: borrow private, proven not revealed",
+  title: "Veil app: borrow private, proven not revealed",
 };
 
-export default function WorkspacePage() {
+export default function AppPage() {
   return (
     <>
       <Nav />
       <main>
         <section className="app-intro wrap">
-          <div className="section-kicker reveal d1">Live workspace</div>
-          <h1 className="app-title reveal d2">
-            Connect, read the position, and watch the proof gate the money.
+          <div className="section-kicker reveal" data-d="1">
+            Live on {SITE.networks}
+          </div>
+          <h1 className="app-title reveal" data-d="2">
+            Lock collateral, prove it privately, and borrow USDC.
           </h1>
-          <p className="app-lead reveal d3">
-            Everything below reads the deployed contracts on Ethereum Sepolia and
-            Stellar testnet. The collateral amount stays hidden, the loan settles
-            against a threshold, and a tampered proof is rejected live. The full
-            story lives on the{" "}
-            <Link className="tx-inline" href="/">
-              landing page
-            </Link>
-            .
+          <p className="app-lead reveal" data-d="3">
+            Connect both wallets, lock your own test ETH on Ethereum, then let a
+            zero-knowledge proof unlock real Circle USDC on Stellar. Every action
+            here is a real transaction you sign. Your collateral amount never
+            leaves your wallet view; proving runs off-chain and takes a few minutes.
           </p>
         </section>
-        <LiveWorkspace />
+        <AppWorkspace />
         <DeployedContracts />
       </main>
       <SiteFooter />

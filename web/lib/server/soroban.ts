@@ -81,6 +81,15 @@ export const readConfig = (): Promise<SorobanConfig> =>
 export const readLoan = (hashlock: string): Promise<SorobanLoan> =>
   simRead(VAULT, "get_loan", [bytesVal(hashlock)]) as Promise<SorobanLoan>;
 
+/** Read a posted checkpoint root for an Ethereum block. Returns the 0x root, or null if none. */
+export async function readCheckpoint(block: number): Promise<string | null> {
+  const v = await simRead(VAULT, "get_checkpoint", [
+    nativeToScVal(BigInt(block), { type: "u64" }),
+  ]);
+  if (!v) return null;
+  return "0x" + Buffer.from(v as Uint8Array).toString("hex");
+}
+
 export const readPrice = (): Promise<SorobanPrice> =>
   simRead(REFLECTOR, "lastprice", [ethAssetVal()]) as Promise<SorobanPrice>;
 
