@@ -5,6 +5,7 @@
   "pinned_block": 11143924,
   "state_root": "0xe8ad78ff206153c2f2bf9767b2af9bb05ebae1aafd64cb73bfeb4968dc21a851",
   "block_hash": "0xb54d1180557be165f348b0567e8dc2e1b8ef1b6428a12e5ce0500928e2550d09",
+  "recipient": "0x835ae6dade543458b5da8d6bbe9972c06dcfe8145b68b71f92b9939f4717301e",
   "storage_value": "0x2386f26fc10000",
   "storage_hash": "0x61d18d4e062c2265cf5ae3b7da2dbfa7db9bb6ebb1eae4868b0ceeb353b89896",
   "account_proof_nodes": 8,

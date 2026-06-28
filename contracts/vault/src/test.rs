@@ -94,7 +94,13 @@ fn setup() -> Fixture<'static> {
     Fixture { env, vault, vault_id, usdc, usdc_admin, admin, borrower, escrow_addr }
 }
 
-// canonical 140-byte journal
+/// keccak256 of an address's canonical strkey ASCII — the recipient binding the vault recomputes.
+fn recipient_of(env: &Env, who: &Address) -> BytesN<32> {
+    env.crypto().keccak256(&who.to_string().to_bytes()).to_bytes()
+}
+
+// canonical 172-byte journal, recipient bound to `who`
+#[allow(clippy::too_many_arguments)]
 fn journal(
     env: &Env,
     escrow: &BytesN<20>,
@@ -103,6 +109,7 @@ fn journal(
     threshold_wei: u128,
     h: &BytesN<32>,
     n: &BytesN<32>,
+    who: &Address,
 ) -> Bytes {
     let mut b = Bytes::new(env);
     b.append(&Bytes::from_array(env, &state_root.to_array())); // 32
@@ -111,6 +118,7 @@ fn journal(
     b.append(&Bytes::from_array(env, &threshold_wei.to_be_bytes())); // 16
     b.append(&Bytes::from_array(env, &h.to_array()));          // 32
     b.append(&Bytes::from_array(env, &n.to_array()));          // 32
+    b.append(&Bytes::from_array(env, &recipient_of(env, who).to_array())); // 32 -> 172
     b
 }
 
@@ -131,7 +139,7 @@ fn happy_path_borrow() {
 
     let h = b32(&f.env, 0x01);
     let n = b32(&f.env, 0x02);
-    let j = journal(&f.env, &f.escrow_addr, 100, &root, 2 * ETH_WEI, &h, &n);
+    let j = journal(&f.env, &f.escrow_addr, 100, &root, 2 * ETH_WEI, &h, &n, &f.borrower);
     let seal = digest_seal(&f.env, &j);
 
     let principal = f.vault.borrow(&seal, &j, &f.borrower);
@@ -152,11 +160,11 @@ fn tampered_journal_reverts() {
 
     let h = b32(&f.env, 0x01);
     let n = b32(&f.env, 0x02);
-    let j = journal(&f.env, &f.escrow_addr, 100, &root, 2 * ETH_WEI, &h, &n);
+    let j = journal(&f.env, &f.escrow_addr, 100, &root, 2 * ETH_WEI, &h, &n, &f.borrower);
     let seal = digest_seal(&f.env, &j); // seal binds the ORIGINAL journal
 
     // tamper: claim 100 ETH instead of 2 — seal no longer matches digest
-    let jt = journal(&f.env, &f.escrow_addr, 100, &root, 100 * ETH_WEI, &h, &n);
+    let jt = journal(&f.env, &f.escrow_addr, 100, &root, 100 * ETH_WEI, &h, &n, &f.borrower);
     let res = f.vault.try_borrow(&seal, &jt, &f.borrower);
     assert!(res.is_err(), "tampered journal must revert");
     assert_eq!(f.usdc.balance(&f.borrower), 0); // no USDC moved
@@ -169,7 +177,7 @@ fn unknown_checkpoint_rejected() {
     // no checkpoint posted
     let h = b32(&f.env, 0x01);
     let n = b32(&f.env, 0x02);
-    let j = journal(&f.env, &f.escrow_addr, 100, &root, 2 * ETH_WEI, &h, &n);
+    let j = journal(&f.env, &f.escrow_addr, 100, &root, 2 * ETH_WEI, &h, &n, &f.borrower);
     let seal = digest_seal(&f.env, &j);
     let res = f.vault.try_borrow(&seal, &j, &f.borrower);
     assert_eq!(res, Err(Ok(Error::UnknownCheckpoint)));
@@ -179,7 +187,7 @@ fn unknown_checkpoint_rejected() {
 fn checkpoint_mismatch_rejected() {
     let f = setup();
     f.vault.post_checkpoint(&100u64, &b32(&f.env, 0xAB));
-    let j = journal(&f.env, &f.escrow_addr, 100, &b32(&f.env, 0xCD), 2 * ETH_WEI, &b32(&f.env, 1), &b32(&f.env, 2));
+    let j = journal(&f.env, &f.escrow_addr, 100, &b32(&f.env, 0xCD), 2 * ETH_WEI, &b32(&f.env, 1), &b32(&f.env, 2), &f.borrower);
     let seal = digest_seal(&f.env, &j);
     assert_eq!(f.vault.try_borrow(&seal, &j, &f.borrower), Err(Ok(Error::CheckpointMismatch)));
 }
@@ -190,7 +198,7 @@ fn wrong_escrow_rejected() {
     let root = b32(&f.env, 0xAB);
     f.vault.post_checkpoint(&100u64, &root);
     let bad_escrow = BytesN::from_array(&f.env, &[0x11u8; 20]);
-    let j = journal(&f.env, &bad_escrow, 100, &root, 2 * ETH_WEI, &b32(&f.env, 1), &b32(&f.env, 2));
+    let j = journal(&f.env, &bad_escrow, 100, &root, 2 * ETH_WEI, &b32(&f.env, 1), &b32(&f.env, 2), &f.borrower);
     let seal = digest_seal(&f.env, &j);
     assert_eq!(f.vault.try_borrow(&seal, &j, &f.borrower), Err(Ok(Error::WrongEscrow)));
 }
@@ -200,7 +208,7 @@ fn threshold_too_low_rejected() {
     let f = setup();
     let root = b32(&f.env, 0xAB);
     f.vault.post_checkpoint(&100u64, &root);
-    let j = journal(&f.env, &f.escrow_addr, 100, &root, ETH_WEI / 100, &b32(&f.env, 1), &b32(&f.env, 2)); // 0.01 ETH < 0.1 min
+    let j = journal(&f.env, &f.escrow_addr, 100, &root, ETH_WEI / 100, &b32(&f.env, 1), &b32(&f.env, 2), &f.borrower); // 0.01 ETH < 0.1 min
     let seal = digest_seal(&f.env, &j);
     assert_eq!(f.vault.try_borrow(&seal, &j, &f.borrower), Err(Ok(Error::ThresholdTooLow)));
 }
@@ -211,10 +219,10 @@ fn nullifier_replay_rejected() {
     let root = b32(&f.env, 0xAB);
     f.vault.post_checkpoint(&100u64, &root);
     let n = b32(&f.env, 0x02);
-    let j1 = journal(&f.env, &f.escrow_addr, 100, &root, 2 * ETH_WEI, &b32(&f.env, 0x01), &n);
+    let j1 = journal(&f.env, &f.escrow_addr, 100, &root, 2 * ETH_WEI, &b32(&f.env, 0x01), &n, &f.borrower);
     f.vault.borrow(&digest_seal(&f.env, &j1), &j1, &f.borrower);
     // same nullifier, different hashlock
-    let j2 = journal(&f.env, &f.escrow_addr, 100, &root, 2 * ETH_WEI, &b32(&f.env, 0x09), &n);
+    let j2 = journal(&f.env, &f.escrow_addr, 100, &root, 2 * ETH_WEI, &b32(&f.env, 0x09), &n, &f.borrower);
     assert_eq!(f.vault.try_borrow(&digest_seal(&f.env, &j2), &j2, &f.borrower), Err(Ok(Error::NullifierUsed)));
 }
 
@@ -228,7 +236,7 @@ fn repay_reveals_secret_and_returns_principal() {
     let s = b32(&f.env, 0x77);
     let h = f.env.crypto().keccak256(&Bytes::from_array(&f.env, &s.to_array())).to_bytes();
     let n = b32(&f.env, 0x02);
-    let j = journal(&f.env, &f.escrow_addr, 100, &root, 2 * ETH_WEI, &h, &n);
+    let j = journal(&f.env, &f.escrow_addr, 100, &root, 2 * ETH_WEI, &h, &n, &f.borrower);
     let principal = f.vault.borrow(&digest_seal(&f.env, &j), &j, &f.borrower);
 
     // borrower repays principal (already holds it from the loan)
@@ -247,7 +255,7 @@ fn repay_wrong_secret_rejected() {
     f.vault.post_checkpoint(&100u64, &root);
     let s = b32(&f.env, 0x77);
     let h = f.env.crypto().keccak256(&Bytes::from_array(&f.env, &s.to_array())).to_bytes();
-    let j = journal(&f.env, &f.escrow_addr, 100, &root, 2 * ETH_WEI, &h, &b32(&f.env, 2));
+    let j = journal(&f.env, &f.escrow_addr, 100, &root, 2 * ETH_WEI, &h, &b32(&f.env, 2), &f.borrower);
     f.vault.borrow(&digest_seal(&f.env, &j), &j, &f.borrower);
     let wrong = b32(&f.env, 0x66);
     assert_eq!(f.vault.try_repay(&h, &wrong), Err(Ok(Error::WrongSecret)));
@@ -259,7 +267,7 @@ fn timeout_liquidation() {
     let root = b32(&f.env, 0xAB);
     f.vault.post_checkpoint(&100u64, &root);
     let h = b32(&f.env, 0x01);
-    let j = journal(&f.env, &f.escrow_addr, 100, &root, 2 * ETH_WEI, &h, &b32(&f.env, 2));
+    let j = journal(&f.env, &f.escrow_addr, 100, &root, 2 * ETH_WEI, &h, &b32(&f.env, 2), &f.borrower);
     f.vault.borrow(&digest_seal(&f.env, &j), &j, &f.borrower);
 
     // before due
@@ -288,7 +296,43 @@ fn stale_checkpoint_rejected() {
     let root100 = b32(&f.env, 0xAB);
     f.vault.post_checkpoint(&100u64, &root100);
     f.vault.post_checkpoint(&500u64, &b32(&f.env, 0xCC)); // latest=500, age(100)=400 > 300
-    let j = journal(&f.env, &f.escrow_addr, 100, &root100, 2 * ETH_WEI, &b32(&f.env, 1), &b32(&f.env, 2));
+    let j = journal(&f.env, &f.escrow_addr, 100, &root100, 2 * ETH_WEI, &b32(&f.env, 1), &b32(&f.env, 2), &f.borrower);
     let seal = digest_seal(&f.env, &j);
     assert_eq!(f.vault.try_borrow(&seal, &j, &f.borrower), Err(Ok(Error::StaleCheckpoint)));
+}
+
+// H-B fix: a proof whose committed recipient is a DIFFERENT account cannot be redeemed by the
+// caller. Closes the bearer-redeemable-proof hole — a stolen {seal, journal} is useless to a thief.
+#[test]
+fn wrong_recipient_rejected() {
+    let f = setup();
+    let root = b32(&f.env, 0xAB);
+    f.vault.post_checkpoint(&100u64, &root);
+    let other = Address::generate(&f.env); // proof bound to someone else
+    let j = journal(&f.env, &f.escrow_addr, 100, &root, 2 * ETH_WEI, &b32(&f.env, 1), &b32(&f.env, 2), &other);
+    let seal = digest_seal(&f.env, &j);
+    assert_eq!(f.vault.try_borrow(&seal, &j, &f.borrower), Err(Ok(Error::WrongRecipient)));
+    assert_eq!(f.usdc.balance(&f.borrower), 0); // no USDC moved
+}
+
+// Decisive cross-check: the ON-CHAIN recipient binding (env keccak over to_string().to_bytes())
+// must equal the OFF-CHAIN value the prover commits (viem keccak256 over the strkey ASCII). If this
+// holds for the real demo account, the live borrow's recipient will match the committed journal.
+#[test]
+fn recipient_binding_matches_offchain_keccak() {
+    let env = Env::default();
+    let addr = Address::from_string(&soroban_sdk::String::from_str(
+        &env,
+        "GABHHKTQVGUQPZMXYJIP6OESTUS6QQA3AICEQI77B4FORUW4CPIVFXIF", // veil-spike (demo borrower)
+    ));
+    // keccak256(ascii(strkey)) computed off-chain with viem; prover.ts uses the identical formula.
+    let expected = BytesN::from_array(
+        &env,
+        &[
+            0x83, 0x5a, 0xe6, 0xda, 0xde, 0x54, 0x34, 0x58, 0xb5, 0xda, 0x8d, 0x6b, 0xbe, 0x99,
+            0x72, 0xc0, 0x6d, 0xcf, 0xe8, 0x14, 0x5b, 0x68, 0xb7, 0x1f, 0x92, 0xb9, 0x93, 0x9f,
+            0x47, 0x17, 0x30, 0x1e,
+        ],
+    );
+    assert_eq!(recipient_of(&env, &addr), expected);
 }
