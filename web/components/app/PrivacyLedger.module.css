@@ -1,0 +1,121 @@
+/* "What Stellar sees" — makes the load-bearing privacy legible: the same loan, what a naive
+   cross-chain design would publish (left, exposed) vs what Veil's ZK actually records (right). */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 14px;
+}
+@media (max-width: 760px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.col {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--ink-800);
+  padding: 18px 18px 20px;
+}
+.exposed {
+  border-color: rgba(255, 86, 76, 0.32);
+  background: linear-gradient(180deg, rgba(255, 86, 76, 0.06), var(--ink-800) 60%);
+}
+.shielded {
+  border-color: rgba(198, 255, 77, 0.28);
+  background: linear-gradient(180deg, rgba(198, 255, 77, 0.06), var(--ink-800) 60%);
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 12px/1 var(--font-hard-stack);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.exposed .tag {
+  color: var(--red-bright);
+}
+.shielded .tag {
+  color: var(--lime);
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.sub {
+  margin: 6px 0 14px;
+  color: var(--text-faint);
+  font-size: 12.5px;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px dashed var(--line);
+  padding-bottom: 9px;
+}
+.row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.k {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.v {
+  font-family: var(--font-mono-stack);
+  font-size: 12.5px;
+  text-align: right;
+  word-break: break-all;
+}
+.leak {
+  color: var(--red-bright);
+}
+.ok {
+  color: var(--platinum-bright);
+}
+
+/* redaction block for a hidden value */
+.hidden {
+  display: inline-flex;
+  gap: 3px;
+  vertical-align: middle;
+}
+.hidden span {
+  width: 9px;
+  height: 13px;
+  border-radius: 2px;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--lime-dim),
+    var(--lime-dim) 2px,
+    var(--lime) 2px,
+    var(--lime) 4px
+  );
+  opacity: 0.85;
+}
+
+.foot {
+  margin-top: 14px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.exposed .foot {
+  color: var(--red-bright);
+}
+.shielded .foot {
+  color: var(--lime-dim);
+}
