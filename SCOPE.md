@@ -5,7 +5,7 @@ Every line tagged with verification status: [VERIFIED] source-confirmed this ses
 ---
 
 ## 1. Product (one line)
-Borrow USDC on Stellar against collateral you keep on Ethereum, proving you are good for it with a zero-knowledge proof that hides the exact amount and your Ethereum identity. The collateral never bridges; the proof, not a relayer, is what Stellar trusts.
+Borrow USDC on Stellar against collateral you keep on Ethereum, proving you are good for it with a zero-knowledge proof that keeps your exact amount and Ethereum wallet off the Stellar ledger. The collateral never bridges; the proof, not a relayer, is what Stellar trusts. (Stellar-side confidentiality; the hashlock is public on both chains, so full cross-chain unlinkability is future work — §12.)
 
 ## 2. The problem we solve
 Your capital is stranded on the chain it sits on. To use Ethereum capital on Stellar's cheap rails today you either bridge it (the hackable trusted-relayer model) or sell it. And on a transparent ledger, even a trust-minimized version would force you to publicly reveal your Ethereum wallet and exact holdings to borrow, broadcasting your net worth and linking your two identities forever. [VERIFIED problem framing]

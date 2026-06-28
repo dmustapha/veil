@@ -18,6 +18,7 @@
  * plain reason and NEVER fabricates a proof. See web/PROVING.md.
  */
 import { execFile } from "node:child_process";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -46,6 +47,34 @@ const CONFIRMATIONS = Number(process.env.PROVE_CONFIRMATIONS || 6);
 
 /** A clear, surfaced reason the backend cannot run here (missing host, key, or tool). */
 export class Unavailable extends Error {}
+
+/**
+ * Job-token auth for /api/prove/status. GitHub run ids are short, sequential, and guessable, so
+ * an unauthenticated status endpoint lets anyone harvest a real {seal, journal} (a bearer proof)
+ * by polling adjacent ids. We never return the raw run id to the client; we return an
+ * HMAC-signed token, and status only unwraps a token whose MAC verifies — so only the caller who
+ * started the proof (and was handed the token by POST /api/prove) can poll it.
+ *
+ * Secret from PROVE_TOKEN_SECRET on the keyed host; otherwise a per-process random secret (the
+ * backend is a single long-lived process — proving 503s on stock serverless before reaching here).
+ */
+const TOKEN_SECRET = process.env.PROVE_TOKEN_SECRET || randomBytes(32).toString("hex");
+function signRunId(runId: string): string {
+  const mac = createHmac("sha256", TOKEN_SECRET).update(runId).digest("base64url");
+  return `${runId}.${mac}`;
+}
+/** Verify a job token and return its run id, or null if the MAC does not check out. */
+function runIdFromToken(token: string): string | null {
+  const dot = token.lastIndexOf(".");
+  if (dot <= 0) return null;
+  const runId = token.slice(0, dot);
+  const mac = Buffer.from(token.slice(dot + 1));
+  const expected = Buffer.from(
+    createHmac("sha256", TOKEN_SECRET).update(runId).digest("base64url")
+  );
+  if (mac.length !== expected.length || !timingSafeEqual(mac, expected)) return null;
+  return runId;
+}
 
 const isHex32 = (s: string) => /^0x[0-9a-fA-F]{64}$/.test(s);
 
@@ -221,7 +250,8 @@ export async function dispatchProof(fx: Fixture): Promise<string> {
     const mine = runs
       .filter((r) => new Date(r.createdAt).getTime() >= since)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-    if (mine) return String(mine.databaseId);
+    // Hand the client an HMAC-signed token, never the raw (guessable) run id — see runIdFromToken.
+    if (mine) return signRunId(String(mine.databaseId));
   }
   throw new Error("workflow dispatched but its run id could not be resolved yet");
 }
@@ -232,7 +262,12 @@ export type ProveStatus =
   | { state: "error"; message: string };
 
 /** Poll a run; on success download veil-proof and parse {seal, journal} from proof.json. */
-export async function runStatus(id: string): Promise<ProveStatus> {
+export async function runStatus(token: string): Promise<ProveStatus> {
+  // AUTH: only a token whose HMAC verifies maps to a real run id. A guessed/forged id is rejected
+  // here, so the {seal, journal} cannot be harvested by polling sequential GitHub run ids.
+  const id = runIdFromToken(token);
+  if (!id) return { state: "error", message: "invalid or unauthorized proof job id" };
+
   let info: { status: string; conclusion: string | null; url: string };
   try {
     const out = await tool("gh", [
@@ -253,7 +288,7 @@ export async function runStatus(id: string): Promise<ProveStatus> {
   if (info.status !== "completed") {
     return {
       state: "pending",
-      message: `Generating the Groth16 proof off-chain (CI run ${id}). This takes several minutes.`,
+      message: `Generating the Groth16 proof off-chain. This takes several minutes.`,
     };
   }
   if (info.conclusion !== "success") {
