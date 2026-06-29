@@ -37,7 +37,7 @@ zkVM: RISC ZERO (chosen over SP1). [VERIFIED] Reason: Nethermind's stellar-risc0
 - Native BN254 host functions: on-chain proof verification is the core, not a side-check. [VERIFIED]
 - Reflector oracle for loan sizing on Stellar. [VERIFIED live]
 - Liquidation enforcement on Ethereum (Chainlink/Pyth + timeout) so no Stellar->Ethereum return proof is ever needed. [SOLVED]
-- Optional deeper twist [GATE/stretch]: authorize borrow() through a Soroban custom account whose __check_auth runs the verifier, making the proof the authorization itself.
+- Deeper twist [SHIPPED]: a Soroban custom account (`contracts/account`, `VeilAccount`) whose __check_auth runs the verifier on-chain — the proof IS the authorization. Proven live (tx `dfd9b055…`, 34M/100M instructions). EVM has no protocol-level equivalent, so this is what makes Stellar non-substitutable.
 
 ## 8. Liquidation (the thing that usually kills cross-chain lending) [SOLVED]
 Enforcement lives where the collateral lives = Ethereum. Stellar is only a signal source, never an actuator. Repayment on Stellar reveals S; anyone relays S to the Ethereum escrow to unlock. Default = Ethereum-side price (oracle) or timeout, both checked on Ethereum. No Stellar-to-Ethereum proof (the genuinely infeasible part) is ever required. This is real, not mocked.
@@ -60,7 +60,8 @@ Only the state-root poster is trusted-not-mocked, and the README says so. Headli
 
 ## 11. In / out of scope
 IN: Sepolia escrow with 3 exits; RISC Zero privacy guest; Soroban verifier + minimal USDC lending vault; Reflector loan sizing; checkpoint relayer; secret-reveal repay + timeout liquidation; the cheat-fails path; honest README.
-STRETCH [GATE]: __check_auth-as-authorization; price-default liquidation wired live; passkey wallet.
+SHIPPED (was stretch): __check_auth-as-authorization (Soroban custom account, proven on-chain).
+STRETCH [GATE]: price-default liquidation wired live; passkey wallet.
 OUT / FUTURE-WORK: ZK light client to remove the checkpoint trust; hiding the escrow<->loan hashlock correlation (full unlinkability); mainnet; multi-asset; production hardening; audits.
 
 ## 12. False-promise guardrails (never claim)

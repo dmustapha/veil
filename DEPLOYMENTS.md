@@ -82,6 +82,24 @@ H-B) and the oracle staleness window dropped 24h → 30min. The guest changed, s
     - thief redeems the proof to another account → `Error(Contract, #17 WrongRecipient)`, 0 USDC moved
 - Prior vault `CBICAWGA…WVGILV` (140-byte journal, no recipient) superseded by the above.
 
+## Proof-as-authorization — Soroban custom account (`__check_auth`)
+The Stellar-native move (SCOPE §7, formerly a stretch): a Soroban **custom account** whose
+authorization IS a RISC Zero proof. `__check_auth` verifies the Groth16 seal on-chain (the same
+BN254 verifier), checks the journal's `recipient` binding, and consumes the nullifier — so "the
+proof is the signature." EVM has no protocol-level equivalent (ERC-4337 is app-level), which is
+what makes Stellar non-substitutable here. **No re-bake**: it reuses the borrower-bound 172-byte
+journal (image_id `0x494bfee7…`, recipient `835ae6da…`).
+- **VeilAccount**: `CCS6MVAC4FEGNE3RGJT7KBKH4J7HQEWERRTJOWD6R5YLYNIFWB7NUEIQ`
+  (init: verifier `CDZRHQMX…`, image_id `0x494bfee7…`, recipient `835ae6da…`)
+- **Probe** (triggers the account's `require_auth`): `CATFANE7LHSKAR566SR3J4CMUFEH3CEA6B6VYRPXYJEHZ6ZONEWBBIAX`
+- **Real on-chain `__check_auth` tx** (proof authorized the call, BN254 verified inside auth):
+  `dfd9b05525f4ed2bf2b23f5226fb337699996b29877fe4ed366ca24d6393e173` — **SUCCESS**
+- **Budget**: the BN254 verify inside `__check_auth` cost **33,995,134 instructions** of the
+  100,000,000 per-tx max (~34%) — fits with wide margin. (This was the open feasibility question;
+  answered live.)
+- Failure paths covered by `contracts/account` tests (try_invoke_contract_check_auth): forged seal
+  traps, wrong recipient → `WrongRecipient`, replay → `ProofReused`.
+
 ## Live app (deployed)
 - **https://veilzk.vercel.app** (Vercel, Next.js 15). Public, no auth. `/` landing + `/app` live workspace.
   - `/api/state` reads vault config/loan + Reflector price + escrow lock live (retry + cached fallback).
