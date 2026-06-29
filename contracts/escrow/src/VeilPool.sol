@@ -45,22 +45,56 @@ contract VeilPool is MerkleTreeWithHistory {
     /// @notice Emitted when an AVAILABLE note is locked into a LOCKED note (the joinsplit).
     event Locked(bytes32 indexed nullifierIn, bytes32 indexed commitmentOut, bytes32 lockId, uint32 leafIndex);
 
+    /// @notice Emitted when a LOCKED note is unlocked back to an AVAILABLE note (after a repay-proof).
+    event Unlocked(bytes32 indexed nullifierIn, bytes32 indexed commitmentOut, uint32 leafIndex);
+
+    /// @notice Emitted when Relayer B posts a Soroban repaid-root.
+    event SorobanRootAdded(bytes32 indexed root);
+
     error NullifierAlreadySpent();
     error BadLockJournalLength();
+    error BadUnlockJournalLength();
     error UnknownRoot();
+    error UnknownSorobanRoot();
+    error NotRelayer();
 
-    /// @notice RISC Zero verifier and the lock-joinsplit guest image id. Immutable; set at deploy.
+    /// @notice RISC Zero verifier and the joinsplit guest image ids. Immutable; set at deploy.
     IRiscZeroVerifier public immutable verifier;
     bytes32 public immutable lockImageId;
+    bytes32 public immutable unlockImageId;
+
+    /// @notice Disclosed-trust relayer (Relayer B) authorized to post Soroban repaid-roots. A
+    ///         Wormhole committee + a ZK proof of the repay semantics replaces it in future work.
+    address public immutable relayer;
+
+    /// @notice Soroban repaid-roots `R_sor` relayed from the vault. An unlock proof's membership
+    ///         path proves the position was REPAID against one of these (the repay-proof anchor).
+    mapping(bytes32 => bool) public knownSorobanRoots;
 
     /// @dev Length of the lock joinsplit journal: R(32) ‖ nullifierIn(32) ‖ commitmentOut(32) ‖ lockId(32).
     uint256 private constant LOCK_JOURNAL_LEN = 128;
+    /// @dev Length of the unlock journal: R_eth(32) ‖ R_sor(32) ‖ nullifierIn(32) ‖ commitmentOut(32).
+    uint256 private constant UNLOCK_JOURNAL_LEN = 128;
 
-    constructor(uint32 levels_, IRiscZeroVerifier verifier_, bytes32 lockImageId_)
-        MerkleTreeWithHistory(levels_)
-    {
+    constructor(
+        uint32 levels_,
+        IRiscZeroVerifier verifier_,
+        bytes32 lockImageId_,
+        bytes32 unlockImageId_,
+        address relayer_
+    ) MerkleTreeWithHistory(levels_) {
         verifier = verifier_;
         lockImageId = lockImageId_;
+        unlockImageId = unlockImageId_;
+        relayer = relayer_;
+    }
+
+    /// @notice Relayer B posts a Soroban repaid-root so unlock proofs can anchor their repay-proof.
+    ///         Disclosed trust: the relayer cannot forge — a wrong root only makes proofs fail.
+    function addSorobanRoot(bytes32 root) external {
+        if (msg.sender != relayer) revert NotRelayer();
+        knownSorobanRoots[root] = true;
+        emit SorobanRootAdded(root);
     }
 
     /// @notice Insert a note commitment into the shielded tree.
@@ -117,6 +151,47 @@ contract VeilPool is MerkleTreeWithHistory {
         leafIndex = _insert(commitmentOut);
         emit Commitment(commitmentOut, leafIndex, encNote);
         emit Locked(nullifierIn, commitmentOut, lockId, leafIndex);
+    }
+
+    /// @notice Unlock a LOCKED note back to a spendable AVAILABLE note — the reverse joinsplit,
+    ///         gated on a REPAY-PROOF. The unlock guest proves (in ZK) that the LOCKED note is in
+    ///         pool root `R_eth` AND that the position tied to its lock was REPAID on Stellar
+    ///         (`repaid_leaf` is a member of the Soroban repaid-root `R_sor`), then conserves value
+    ///         into a new AVAILABLE note. Because the proof requires the repay-membership, a
+    ///         borrower can NEVER recover collateral without repaying — closing the v1 hole.
+    /// @param seal    RISC Zero seal for the unlock guest.
+    /// @param journal 128-byte unlock journal: `R_eth ‖ R_sor ‖ nullifierIn ‖ commitmentOut`.
+    /// @param encNote Ciphertext of the recovered AVAILABLE note's opening, addressed to its owner.
+    /// @return leafIndex The leaf index assigned to the recovered AVAILABLE note.
+    function unlock(bytes calldata seal, bytes calldata journal, bytes calldata encNote)
+        external
+        returns (uint32 leafIndex)
+    {
+        if (journal.length != UNLOCK_JOURNAL_LEN) revert BadUnlockJournalLength();
+        bytes32 rEth;
+        bytes32 rSor;
+        bytes32 nullifierIn;
+        bytes32 commitmentOut;
+        assembly {
+            rEth := calldataload(journal.offset)
+            rSor := calldataload(add(journal.offset, 32))
+            nullifierIn := calldataload(add(journal.offset, 64))
+            commitmentOut := calldataload(add(journal.offset, 96))
+        }
+
+        // The LOCKED note must be in a recent root of THIS pool, and the repay-proof must anchor to
+        // a Soroban repaid-root relayed from the vault.
+        if (!isKnownRoot(rEth)) revert UnknownRoot();
+        if (!knownSorobanRoots[rSor]) revert UnknownSorobanRoot();
+
+        // Verify the unlock proof; reverts unless membership + repay-membership + value all hold.
+        verifier.verify(seal, unlockImageId, sha256(journal));
+
+        // Spend the LOCKED note (reverts on double-spend) and insert the recovered AVAILABLE note.
+        _markNullifier(nullifierIn);
+        leafIndex = _insert(commitmentOut);
+        emit Commitment(commitmentOut, leafIndex, encNote);
+        emit Unlocked(nullifierIn, commitmentOut, leafIndex);
     }
 
     /// @notice True if `nf` has already been published.

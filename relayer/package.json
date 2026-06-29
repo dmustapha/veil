@@ -8,6 +8,7 @@
     "checkpoint": "node checkpoint-relayer.mjs",
     "secret": "node secret-relayer.mjs",
     "root": "node root-relayer.mjs",
+    "soroban-root": "node soroban-root-relayer.mjs",
     "test": "node --test"
   }
 }

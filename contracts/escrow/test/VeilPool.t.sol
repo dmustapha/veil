@@ -6,6 +6,7 @@ import {VeilPool, IRiscZeroVerifier} from "../src/VeilPool.sol";
 import {MerkleTreeWithHistory} from "../src/MerkleTreeWithHistory.sol";
 
 bytes32 constant LOCK_IMG = bytes32(uint256(0xABCD));
+bytes32 constant UNLOCK_IMG = bytes32(uint256(0xBEEF));
 
 /// @dev Mock RISC Zero verifier: accepts iff the seal equals the journal digest (binds proof
 ///      to journal, so a tampered journal fails — mirrors the real cryptographic binding).
@@ -22,7 +23,9 @@ contract MockRiscZeroVerifier is IRiscZeroVerifier {
 
 /// @dev Exposes the internal nullifier helper so the set can be exercised directly. Test infra only.
 contract VeilPoolHarness is VeilPool {
-    constructor(uint32 levels_, IRiscZeroVerifier v_) VeilPool(levels_, v_, LOCK_IMG) {}
+    constructor(uint32 levels_, IRiscZeroVerifier v_)
+        VeilPool(levels_, v_, LOCK_IMG, UNLOCK_IMG, address(this))
+    {}
 
     function exposed_markNullifier(bytes32 nf) external {
         _markNullifier(nf);
@@ -40,11 +43,23 @@ contract VeilPoolTest is Test {
 
     event Commitment(bytes32 indexed commitment, uint32 leafIndex, bytes encNote);
     event Locked(bytes32 indexed nullifierIn, bytes32 indexed commitmentOut, bytes32 lockId, uint32 leafIndex);
+    event Unlocked(bytes32 indexed nullifierIn, bytes32 indexed commitmentOut, uint32 leafIndex);
 
     MockRiscZeroVerifier internal verifier = new MockRiscZeroVerifier();
 
     function _deploy(uint32 levels) internal returns (VeilPool) {
-        return new VeilPool(levels, verifier, LOCK_IMG);
+        // The test contract is the disclosed-trust relayer (can post Soroban roots).
+        return new VeilPool(levels, verifier, LOCK_IMG, UNLOCK_IMG, address(this));
+    }
+
+    /// Build a 128-byte unlock journal and the matching mock seal (= its sha256 digest).
+    function _unlockJournal(bytes32 rEth, bytes32 rSor, bytes32 nfIn, bytes32 cOut)
+        internal
+        pure
+        returns (bytes memory journal, bytes memory seal)
+    {
+        journal = abi.encodePacked(rEth, rSor, nfIn, cOut);
+        seal = abi.encodePacked(sha256(journal));
     }
 
     function _hash(bytes32 l, bytes32 r) internal pure returns (bytes32) {
@@ -252,5 +267,98 @@ contract VeilPoolTest is Test {
         bytes memory shortJournal = hex"deadbeef";
         vm.expectRevert(VeilPool.BadLockJournalLength.selector);
         pool.lock(hex"00", shortJournal, "");
+    }
+
+    // ---- unlock (item 7): spend a LOCKED note -> mint an AVAILABLE note, gated on a repay-proof ----
+
+    /// Deposit (giving a known pool root R_eth) and post a Soroban root R_sor. Returns both.
+    function _primeUnlock(VeilPool pool) internal returns (bytes32 rEth, bytes32 rSor) {
+        pool.deposit(keccak256("locked-collateral-note"), "");
+        rEth = pool.getLastRoot();
+        rSor = keccak256("R_sor-after-repay");
+        pool.addSorobanRoot(rSor);
+    }
+
+    function test_UnlockSpendsLockedAndMintsAvailable() public {
+        VeilPool pool = _deploy(16);
+        (bytes32 rEth, bytes32 rSor) = _primeUnlock(pool);
+        bytes32 nfIn = keccak256("locked-note-nullifier");
+        bytes32 cOut = keccak256("available-note-out");
+        (bytes memory journal, bytes memory seal) = _unlockJournal(rEth, rSor, nfIn, cOut);
+
+        vm.expectEmit(true, true, false, true);
+        emit Unlocked(nfIn, cOut, 1);
+        uint32 idx = pool.unlock(seal, journal, "");
+
+        assertEq(idx, 1, "recovered AVAILABLE note is the second leaf");
+        assertTrue(pool.isSpent(nfIn), "locked note nullifier spent");
+        assertEq(pool.nextIndex(), 2, "tree advanced");
+    }
+
+    function test_UnlockUnknownEthRootReverts() public {
+        VeilPool pool = _deploy(16);
+        (, bytes32 rSor) = _primeUnlock(pool);
+        bytes32 badEth = keccak256("not a pool root");
+        (bytes memory journal, bytes memory seal) =
+            _unlockJournal(badEth, rSor, keccak256("n"), keccak256("c"));
+        vm.expectRevert(VeilPool.UnknownRoot.selector);
+        pool.unlock(seal, journal, "");
+    }
+
+    function test_UnlockUnknownSorobanRootReverts() public {
+        // R_eth is known but the Soroban repaid-root was never relayed -> no repay-proof anchor.
+        VeilPool pool = _deploy(16);
+        pool.deposit(keccak256("locked-collateral-note"), "");
+        bytes32 rEth = pool.getLastRoot();
+        bytes32 rSor = keccak256("never-relayed");
+        (bytes memory journal, bytes memory seal) =
+            _unlockJournal(rEth, rSor, keccak256("n"), keccak256("c"));
+        vm.expectRevert(VeilPool.UnknownSorobanRoot.selector);
+        pool.unlock(seal, journal, "");
+    }
+
+    function test_UnlockBadProofReverts() public {
+        VeilPool pool = _deploy(16);
+        (bytes32 rEth, bytes32 rSor) = _primeUnlock(pool);
+        (bytes memory journal,) = _unlockJournal(rEth, rSor, keccak256("n"), keccak256("c"));
+        bytes memory badSeal = abi.encodePacked(keccak256("wrong"));
+        vm.expectRevert(bytes("bad proof"));
+        pool.unlock(badSeal, journal, "");
+    }
+
+    function test_UnlockDoubleSpendReverts() public {
+        VeilPool pool = _deploy(16);
+        (bytes32 rEth, bytes32 rSor) = _primeUnlock(pool);
+        bytes32 nfIn = keccak256("locked-note-nullifier");
+        (bytes memory j1, bytes memory s1) = _unlockJournal(rEth, rSor, nfIn, keccak256("c1"));
+        pool.unlock(s1, j1, "");
+
+        // reuse the same nullifier against a still-known root pair
+        bytes32 rEth2 = pool.getLastRoot();
+        (bytes memory j2, bytes memory s2) = _unlockJournal(rEth2, rSor, nfIn, keccak256("c2"));
+        vm.expectRevert(VeilPool.NullifierAlreadySpent.selector);
+        pool.unlock(s2, j2, "");
+    }
+
+    function test_UnlockBadJournalLengthReverts() public {
+        VeilPool pool = _deploy(16);
+        vm.expectRevert(VeilPool.BadUnlockJournalLength.selector);
+        pool.unlock(hex"00", hex"deadbeef", "");
+    }
+
+    function test_AddSorobanRootOnlyRelayer() public {
+        // Deploy with a DIFFERENT relayer so this test contract is not authorized.
+        address otherRelayer = address(0xBEEF);
+        VeilPool pool = new VeilPool(16, verifier, LOCK_IMG, UNLOCK_IMG, otherRelayer);
+        vm.expectRevert(VeilPool.NotRelayer.selector);
+        pool.addSorobanRoot(keccak256("r"));
+    }
+
+    function test_KnownSorobanRootTracked() public {
+        VeilPool pool = _deploy(16);
+        bytes32 rSor = keccak256("R_sor");
+        assertTrue(!pool.knownSorobanRoots(rSor), "unknown before");
+        pool.addSorobanRoot(rSor);
+        assertTrue(pool.knownSorobanRoots(rSor), "known after");
     }
 }
