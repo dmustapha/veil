@@ -1,6 +1,10 @@
 //! Shared types between the Veil host and guest.
 //!
 //! The journal layout MUST stay byte-identical to `contracts/vault/src/journal.rs`.
+
+/// v2 shielded-note cryptography (SHA-256 note commitments, Merkle membership, bindings).
+pub mod notes;
+
 use serde::{Deserialize, Serialize};
 
 pub const JOURNAL_LEN: usize = 172;

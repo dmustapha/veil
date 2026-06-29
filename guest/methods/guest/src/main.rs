@@ -1,85 +1,21 @@
-//! Veil privacy guest.
+//! Veil v2 borrow guest.
 //!
-//! Proves: an Ethereum account `escrow` in state root `R` holds, at storage slot `amount_slot`,
-//! a value `amount >= threshold`, under hashlock `H` — with the exact `amount` and the account's
-//! full contents kept PRIVATE. Commits only the 140-byte journal `{R, block, escrow, threshold,
-//! H, nullifier}`. Native Merkle verification on Soroban could check the proof but could NOT hide
-//! the amount; that is why this SNARK is load-bearing.
-use alloy_primitives::{keccak256, Bytes, B256, U256};
-use alloy_rlp::{encode as rlp_encode, RlpEncodable};
-use alloy_trie::{proof::verify_proof, Nibbles};
+//! Proves, in zero knowledge, that a **LOCKED** shielded note with `amount >= threshold`
+//! is a member of the public Merkle root `R` of `VeilPool` — without revealing the amount,
+//! the blinding, the owner key, or which leaf. Binds the loan to a `position_id` and the
+//! collateral to a `lockHandle`, and binds the proof to the `borrower`'s Stellar account so a stolen
+//! proof cannot be replayed. Commits only the 144-byte journal `{R, T, position_id, lockHandle, borrower}`.
+//!
+//! Native Merkle verification on Soroban could check membership but could NOT hide the amount —
+//! that is why this SNARK is load-bearing. All proof logic lives in `veil_core::notes` (pure,
+//! unit-tested, and byte-locked to `VeilPool.sol` via a shared cross-impl root vector); the guest
+//! is the thin zkVM wrapper that reads the witness and commits the journal.
 use risc0_zkvm::guest::env;
-use veil_core::{encode_journal, ProofInput, NULL_TAG};
-
-/// Ethereum account record as stored in the state trie: RLP([nonce, balance, storageRoot, codeHash]).
-#[derive(RlpEncodable)]
-struct TrieAccount {
-    nonce: u64,
-    balance: U256,
-    storage_root: B256,
-    code_hash: B256,
-}
+use veil_core::notes::{verify_borrow, BorrowInput};
 
 fn main() {
-    let input: ProofInput = env::read();
-
-    // 1. Account proof: reconstruct the account RLP from witnessed fields and prove it lives in R.
-    //    A wrong storage_hash would make this RLP fail against the state root, so the storage root
-    //    we trust below is itself authenticated here.
-    let state_root = B256::from(input.state_root);
-    let account = TrieAccount {
-        nonce: input.account_nonce,
-        balance: U256::from_be_bytes(input.account_balance),
-        storage_root: B256::from(input.storage_hash),
-        code_hash: B256::from(input.code_hash),
-    };
-    let account_rlp = rlp_encode(&account);
-    let account_key = Nibbles::unpack(keccak256(input.escrow));
-    let account_nodes: Vec<Bytes> = input.account_proof.iter().map(|n| Bytes::from(n.clone())).collect();
-    verify_proof(state_root, account_key, Some(account_rlp), &account_nodes)
-        .expect("account proof invalid");
-
-    // 2. Bind the slot to the hashlock: the ONLY slot we will read is `locks[H].amount`.
-    //    Solidity: base = keccak256(abi.encode(H, uint256(0))); amount lives at base + 1.
-    //    Without this, `amount_slot` is a free witness and a borrower could prove the threshold
-    //    against any slot of any account — minting an unbacked loan. This binding is what makes
-    //    the proof attest "locks[H].amount >= threshold" rather than "some slot >= threshold".
-    let mut slot_preimage = [0u8; 64];
-    slot_preimage[..32].copy_from_slice(&input.hashlock); // abi.encode(bytes32 H, uint256 0)
-    let base = U256::from_be_bytes::<32>(keccak256(slot_preimage).0);
-    let expected_slot = (base + U256::from(1u8)).to_be_bytes::<32>();
-    assert!(input.amount_slot == expected_slot, "amount_slot not bound to hashlock");
-
-    // 3. Storage proof: the bound slot holds `amount` (RLP of the trimmed integer) under storageRoot.
-    let storage_root = B256::from(input.storage_hash);
-    let slot_key = Nibbles::unpack(keccak256(input.amount_slot));
-    let amount = U256::from(input.amount_wei);
-    let value_rlp = rlp_encode(&amount);
-    let storage_nodes: Vec<Bytes> = input.storage_proof.iter().map(|n| Bytes::from(n.clone())).collect();
-    verify_proof(storage_root, slot_key, Some(value_rlp), &storage_nodes)
-        .expect("storage proof invalid");
-
-    // 3. The collateral clears the threshold. `amount` never leaves the guest.
-    assert!(input.amount_wei >= input.threshold_wei, "amount below threshold");
-
-    // 4. Nullifier = keccak256("veil-null" || escrow || hashlock). One lock -> one loan.
-    let mut pre = Vec::with_capacity(NULL_TAG.len() + 20 + 32);
-    pre.extend_from_slice(NULL_TAG);
-    pre.extend_from_slice(&input.escrow);
-    pre.extend_from_slice(&input.hashlock);
-    let nullifier: [u8; 32] = keccak256(&pre).into();
-
-    // 5. Commit the canonical 172-byte journal (the only public output). `recipient` is a public
-    //    binding (keccak256 of the borrower's Stellar strkey) the vault asserts against the caller,
-    //    so a stolen proof cannot be redeemed by a different account.
-    let journal = encode_journal(
-        &input.state_root,
-        input.block,
-        &input.escrow,
-        input.threshold_wei,
-        &input.hashlock,
-        &nullifier,
-        &input.recipient,
-    );
+    let input: BorrowInput = env::read();
+    // PRIVACY: `input.amount` is a private witness and must never be committed or printed.
+    let journal = verify_borrow(&input);
     env::commit_slice(&journal);
 }
