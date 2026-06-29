@@ -16,6 +16,15 @@ pub const LOCK_TAG: &[u8] = b"VEIL_LOCK";
 /// Soroban repaid-tree leaf tag. The vault inserts `repaid_leaf(lockHandle)` on repay; the unlock
 /// proof folds it to the Soroban repaid-root `R_sor` — the repay-proof that gates unlock.
 pub const REPAID_TAG: &[u8] = b"VEIL_REPAID";
+/// Soroban liquidated-tree leaf tag (the seize analogue of `REPAID_TAG`). The vault inserts
+/// `liquidated_leaf(lockHandle)` when a position is LIQUIDATED; the seize proof folds it to the
+/// Soroban liquidated-root `R_liq` — the default-proof that gates collateral seizure.
+pub const LIQUIDATED_TAG: &[u8] = b"VEIL_LIQUIDATED";
+/// Recovery-key domain tags. The protocol holds a per-position recovery key; a DEFAULTED note's
+/// opening is escrowed under it so the protocol can reconstruct (and seize) only defaulted notes.
+pub const RECOVERY_TAG: &[u8] = b"VEIL_RECOVERY";
+pub const RECOVERY_ENC_TAG: &[u8] = b"VEIL_RECOVERY_ENC";
+pub const RECOVERY_MAC_TAG: &[u8] = b"VEIL_RECOVERY_MAC";
 
 /// Note domains.
 pub const DOMAIN_AVAILABLE: u8 = 0x00;
@@ -74,6 +83,13 @@ pub fn lock_handle(lock_id: &[u8; 32]) -> [u8; 32] {
 /// position is repaid; its membership in `R_sor` is the repay-proof the unlock guest requires.
 pub fn repaid_leaf(lock_handle: &[u8; 32]) -> [u8; 32] {
     sha256(&[REPAID_TAG, lock_handle])
+}
+
+/// liquidatedLeaf = SHA256(LIQUIDATED_TAG ‖ lockHandle[32]). The leaf the Soroban vault appends
+/// when a position is LIQUIDATED; its membership in `R_liq` is the default-proof the seize guest
+/// requires (the seize analogue of `repaid_leaf`).
+pub fn liquidated_leaf(lock_handle: &[u8; 32]) -> [u8; 32] {
+    sha256(&[LIQUIDATED_TAG, lock_handle])
 }
 
 /// Fold a leaf up its Merkle path to a root, ordering siblings by the leaf-index bit at each
@@ -283,6 +299,263 @@ pub fn verify_unlock(input: &UnlockInput) -> [u8; UNLOCK_JOURNAL_LEN] {
     assert!(c_out == input.commitment_out, "bad output commitment");
 
     encode_unlock_journal(&input.root_eth, &input.root_sor, &nf, &c_out)
+}
+
+// ---- recovery key: escrowed per-position reveal of a DEFAULTED note's opening (item 8) ----
+//
+// Liquidation needs the LOCKED note's private opening to construct a seize proof, but that opening
+// is the borrower's secret. The protocol holds a recovery key (Penumbra viewing-key pattern): at
+// origination the borrower's opening is escrowed under a per-position key, and the protocol opens
+// it ONLY for a position that has defaulted — solvent positions stay fully private.
+//
+// ⚠️ MVP TRANSPORT: this uses a SHA-256 keystream + MAC symmetric envelope to demonstrate the
+//    seal/open + the soundness binding. Production replaces the symmetric KDF with asymmetric
+//    encryption to the protocol's recovery PUBLIC key (e.g. x25519 + ChaCha20-Poly1305) so the
+//    borrower cannot self-open, and the recovery secret is threshold-shared (2-of-3). The
+//    soundness guarantee (`verify_recovery_reveal`) is transport-independent and is what matters.
+
+/// Per-position recovery key: `SHA256(RECOVERY_TAG ‖ master[32] ‖ position_id[32])`. Derived from
+/// the protocol's recovery master secret so a leaked per-position key never exposes the master or
+/// other positions.
+pub fn recovery_key(master: &[u8; 32], position_id: &[u8; 32]) -> [u8; 32] {
+    sha256(&[RECOVERY_TAG, master, position_id])
+}
+
+/// The LOCKED note opening needed to seize a defaulted position: everything required to recompute
+/// the note commitment AND its nullifier (so the protocol can build a valid seize proof).
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct RecoveryOpening {
+    pub amount: u128,
+    pub blinding: [u8; 32],
+    pub spend_pk: [u8; 32],
+    pub lock_id: [u8; 32],
+    pub nk: [u8; 32],
+    pub leaf_index: u64,
+}
+
+/// Serialized length of a `RecoveryOpening`: amount(16) ‖ blinding(32) ‖ spend_pk(32) ‖ lock_id(32)
+/// ‖ nk(32) ‖ leaf_index(8) = 152 bytes.
+pub const RECOVERY_PLAINTEXT_LEN: usize = 152;
+
+/// A sealed recovery opening: ciphertext + MAC. Held by the protocol; opened only on default.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct RecoveryEnvelope {
+    pub ciphertext: Vec<u8>,
+    pub mac: [u8; 32],
+}
+
+fn recovery_serialize(o: &RecoveryOpening) -> [u8; RECOVERY_PLAINTEXT_LEN] {
+    let mut b = [0u8; RECOVERY_PLAINTEXT_LEN];
+    b[0..16].copy_from_slice(&o.amount.to_be_bytes());
+    b[16..48].copy_from_slice(&o.blinding);
+    b[48..80].copy_from_slice(&o.spend_pk);
+    b[80..112].copy_from_slice(&o.lock_id);
+    b[112..144].copy_from_slice(&o.nk);
+    b[144..152].copy_from_slice(&o.leaf_index.to_be_bytes());
+    b
+}
+
+fn recovery_deserialize(b: &[u8; RECOVERY_PLAINTEXT_LEN]) -> RecoveryOpening {
+    let mut amount = [0u8; 16];
+    amount.copy_from_slice(&b[0..16]);
+    let mut blinding = [0u8; 32];
+    blinding.copy_from_slice(&b[16..48]);
+    let mut spend_pk = [0u8; 32];
+    spend_pk.copy_from_slice(&b[48..80]);
+    let mut lock_id = [0u8; 32];
+    lock_id.copy_from_slice(&b[80..112]);
+    let mut nk = [0u8; 32];
+    nk.copy_from_slice(&b[112..144]);
+    let mut li = [0u8; 8];
+    li.copy_from_slice(&b[144..152]);
+    RecoveryOpening {
+        amount: u128::from_be_bytes(amount),
+        blinding,
+        spend_pk,
+        lock_id,
+        nk,
+        leaf_index: u64::from_be_bytes(li),
+    }
+}
+
+/// SHA-256 counter-mode keystream: block `i` = `SHA256(RECOVERY_ENC_TAG ‖ rk ‖ i[4 BE])`.
+fn recovery_keystream(rk: &[u8; 32], len: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(len);
+    let mut counter: u32 = 0;
+    while out.len() < len {
+        let block = sha256(&[RECOVERY_ENC_TAG, rk, &counter.to_be_bytes()]);
+        out.extend_from_slice(&block);
+        counter += 1;
+    }
+    out.truncate(len);
+    out
+}
+
+/// Encrypt-and-MAC a note opening under a per-position recovery key. The MAC binds the plaintext so
+/// `open_recovery` rejects any tamper (and the wrong key).
+pub fn seal_recovery(rk: &[u8; 32], opening: &RecoveryOpening) -> RecoveryEnvelope {
+    let plaintext = recovery_serialize(opening);
+    let ks = recovery_keystream(rk, RECOVERY_PLAINTEXT_LEN);
+    let mut ciphertext = vec![0u8; RECOVERY_PLAINTEXT_LEN];
+    for i in 0..RECOVERY_PLAINTEXT_LEN {
+        ciphertext[i] = plaintext[i] ^ ks[i];
+    }
+    let mac = sha256(&[RECOVERY_MAC_TAG, rk, &plaintext]);
+    RecoveryEnvelope { ciphertext, mac }
+}
+
+/// Decrypt-and-verify. Returns `None` on a wrong key or a tampered ciphertext (MAC mismatch); the
+/// protocol only ever calls this for a position the vault has marked DEFAULTED.
+pub fn open_recovery(rk: &[u8; 32], env: &RecoveryEnvelope) -> Option<RecoveryOpening> {
+    if env.ciphertext.len() != RECOVERY_PLAINTEXT_LEN {
+        return None;
+    }
+    let ks = recovery_keystream(rk, RECOVERY_PLAINTEXT_LEN);
+    let mut plaintext = [0u8; RECOVERY_PLAINTEXT_LEN];
+    for i in 0..RECOVERY_PLAINTEXT_LEN {
+        plaintext[i] = env.ciphertext[i] ^ ks[i];
+    }
+    let mac = sha256(&[RECOVERY_MAC_TAG, rk, &plaintext]);
+    if mac != env.mac {
+        return None;
+    }
+    Some(recovery_deserialize(&plaintext))
+}
+
+/// The soundness core of the recovery mechanism: a revealed opening must reconstruct the EXACT
+/// on-chain LOCKED note commitment AND its nullifier. If it does, the protocol can build a seize
+/// proof that spends precisely that note; if it doesn't, the borrower escrowed garbage and the
+/// reveal is worthless — which is detectable here (transport-independent).
+pub fn verify_recovery_reveal(
+    opening: &RecoveryOpening,
+    commitment: &[u8; 32],
+    nullifier_expected: &[u8; 32],
+) -> bool {
+    let c = note_commitment(
+        DOMAIN_LOCKED,
+        opening.amount,
+        &opening.blinding,
+        &opening.spend_pk,
+        &opening.lock_id,
+    );
+    let nf = nullifier(&opening.nk, &c, opening.leaf_index);
+    &c == commitment && &nf == nullifier_expected
+}
+
+// ---- seize joinsplit: spend a LIQUIDATED LOCKED note -> T to liquidator, change to borrower ----
+
+/// Seize journal: `R_eth(32) ‖ R_liq(32) ‖ seized(16 BE) ‖ nullifier_in(32) ‖
+/// commitment_liquidator(32) ‖ commitment_change(32)` = 176 bytes. `seized` (the proven floor T)
+/// is the only public amount; the borrower's total collateral and the change stay hidden.
+pub const SEIZE_JOURNAL_LEN: usize = 176;
+
+/// Canonical 176-byte seize journal (the public output of the seize joinsplit proof).
+pub fn encode_seize_journal(
+    root_eth: &[u8; 32],
+    root_liq: &[u8; 32],
+    seized: u128,
+    nullifier_in: &[u8; 32],
+    commitment_liquidator: &[u8; 32],
+    commitment_change: &[u8; 32],
+) -> [u8; SEIZE_JOURNAL_LEN] {
+    let mut out = [0u8; SEIZE_JOURNAL_LEN];
+    out[0..32].copy_from_slice(root_eth);
+    out[32..64].copy_from_slice(root_liq);
+    out[64..80].copy_from_slice(&seized.to_be_bytes());
+    out[80..112].copy_from_slice(nullifier_in);
+    out[112..144].copy_from_slice(commitment_liquidator);
+    out[144..176].copy_from_slice(commitment_change);
+    out
+}
+
+/// Seize joinsplit witness: spend one LOCKED note and split it into a liquidator note worth the
+/// PUBLIC floor `seized` and a change note worth the hidden remainder back to the borrower — but
+/// ONLY against a proof that the position was LIQUIDATED on Stellar.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SeizeInput {
+    // --- public (re-committed) ---
+    pub root_eth: [u8; 32],
+    pub root_liq: [u8; 32],
+    pub seized: u128,
+    pub nullifier_in: [u8; 32],
+    pub commitment_liquidator: [u8; 32],
+    pub commitment_change: [u8; 32],
+    // --- private witnesses ---
+    pub amount: u128,
+    pub blinding_in: [u8; 32],
+    pub spend_pk: [u8; 32], // borrower's key: owns the LOCKED note and receives the change
+    pub nk: [u8; 32],
+    pub lock_id: [u8; 32],
+    pub leaf_index: u64,
+    pub siblings_eth: Vec<[u8; 32]>,
+    pub liquidated_leaf_index: u64,
+    pub siblings_liq: Vec<[u8; 32]>,
+    pub liquidator_pk: [u8; 32], // liquidator's key: receives the seized floor note
+    pub blinding_liquidator: [u8; 32],
+    pub blinding_change: [u8; 32],
+}
+
+/// The complete seize-guest logic as a pure function. Spend a LOCKED note proven in the Ethereum
+/// pool root, prove (THE GATE) the position tied to its `lock_id` was LIQUIDATED on Stellar
+/// (`liquidated_leaf(lock_handle(lock_id))` is a member of `R_liq`), then split the value: the
+/// liquidator receives a note worth the public floor `seized`, the borrower receives a change note
+/// worth `amount - seized`. Value is conserved structurally (`seized + change == amount`), so the
+/// seize cannot mint more than the note was worth, and a borrower can never be over-seized.
+/// Panics (→ proof fails) on any violation. The hidden `amount` never appears in the output.
+pub fn verify_seize(input: &SeizeInput) -> [u8; SEIZE_JOURNAL_LEN] {
+    // 1. Recompute the LOCKED input note (aux = lock_id).
+    let c_in = note_commitment(
+        DOMAIN_LOCKED,
+        input.amount,
+        &input.blinding_in,
+        &input.spend_pk,
+        &input.lock_id,
+    );
+
+    // 2. The LOCKED note is a member of the Ethereum pool root.
+    let computed_eth = merkle_root_from_path(&c_in, input.leaf_index, &input.siblings_eth);
+    assert!(computed_eth == input.root_eth, "locked note not in pool");
+
+    // 3. The published nullifier is the correct key-derived nullifier (proves nk ownership).
+    let nf = nullifier(&input.nk, &c_in, input.leaf_index);
+    assert!(nf == input.nullifier_in, "bad nullifier");
+
+    // 4. THE DEFAULT-PROOF: the liquidated leaf for THIS lock is a member of `R_liq`.
+    let ll = liquidated_leaf(&lock_handle(&input.lock_id));
+    let computed_liq = merkle_root_from_path(&ll, input.liquidated_leaf_index, &input.siblings_liq);
+    assert!(computed_liq == input.root_liq, "position not liquidated on Stellar");
+
+    // 5. The liquidator cannot seize more than the note is worth (no change underflow).
+    assert!(input.amount >= input.seized, "seized exceeds collateral");
+
+    // 6. Liquidator note carries the PUBLIC `seized` floor (aux = 0, liquidator's key).
+    let c_liq = note_commitment(
+        DOMAIN_AVAILABLE,
+        input.seized,
+        &input.blinding_liquidator,
+        &input.liquidator_pk,
+        &[0u8; 32],
+    );
+    assert!(c_liq == input.commitment_liquidator, "bad liquidator commitment");
+
+    // 7. Change note carries the hidden remainder back to the borrower (value conserved).
+    let c_change = note_commitment(
+        DOMAIN_AVAILABLE,
+        input.amount - input.seized,
+        &input.blinding_change,
+        &input.spend_pk,
+        &[0u8; 32],
+    );
+    assert!(c_change == input.commitment_change, "bad change commitment");
+
+    encode_seize_journal(
+        &input.root_eth,
+        &input.root_liq,
+        input.seized,
+        &nf,
+        &c_liq,
+        &c_change,
+    )
 }
 
 /// Borrow proof witness. Public fields are re-committed to the journal; the rest stay secret
@@ -756,6 +1029,248 @@ mod tests {
             expected = hash_pair(&expected, s);
         }
         assert_eq!(root, expected);
+    }
+
+    // ---- item 8: liquidation (recovery-key reveal + the seize joinsplit) ----
+
+    #[test]
+    fn liquidated_leaf_is_domain_separated() {
+        let lh = fill(0x77);
+        // liquidated leaf must not collide with the lock-handle it commits, nor with a repaid leaf
+        // for the same handle (a repaid position must never look liquidated, and vice versa).
+        assert_ne!(liquidated_leaf(&lh), lh);
+        assert_ne!(liquidated_leaf(&lh), repaid_leaf(&lh));
+        assert_eq!(liquidated_leaf(&lh), liquidated_leaf(&lh)); // deterministic
+    }
+
+    #[test]
+    fn liquidated_tree_matches_cross_impl_vector() {
+        // CROSS-IMPL VECTOR for the Soroban liquidated-tree (R_liq), the seize analogue of R_sor.
+        // Asserted identically in vault-v2's `liquidated_root_matches_cross_impl_vector`. The seize
+        // guest folds membership against R_liq; if the Soroban incremental tree and this fold ever
+        // diverge, one of the two assertions breaks (seize proofs would silently fail).
+        let lock_id = fill(0x02);
+        let ll = liquidated_leaf(&lock_handle(&lock_id));
+        let root = merkle_root_from_path(&ll, 0, &[Z0, z1()]);
+        let pinned = hex_lit("2829b74bb0ea05f8be8aa93847115bc431180181613eb4300ca62e7f012c9d3b");
+        assert_eq!(&root[..], &pinned[..], "liquidated-tree root drifted from the shared vector");
+
+        let root16 = merkle_root_from_path(&ll, 0, &zero_hashes(16));
+        let pinned16 = hex_lit("e269b6576d68cdba7d9866037a70c0f93a860daca2170904684bdedf47dc70ea");
+        assert_eq!(&root16[..], &pinned16[..], "depth-16 liquidated-tree root drifted");
+    }
+
+    // ---- recovery key (escrowed per-position reveal of a DEFAULTED note's opening) ----
+
+    fn sample_opening() -> RecoveryOpening {
+        RecoveryOpening {
+            amount: 7_000_000_000_000_000_000,
+            blinding: fill(0x31),
+            spend_pk: fill(0x32),
+            lock_id: fill(0x33),
+            nk: fill(0x34),
+            leaf_index: 5,
+        }
+    }
+
+    #[test]
+    fn recovery_key_is_per_position_and_deterministic() {
+        let master = fill(0xF0);
+        let p1 = fill(0xA1);
+        let p2 = fill(0xA2);
+        assert_eq!(recovery_key(&master, &p1), recovery_key(&master, &p1), "deterministic");
+        assert_ne!(recovery_key(&master, &p1), recovery_key(&master, &p2), "per-position");
+        // a different master yields a different key (no cross-position reuse leaks the master).
+        assert_ne!(recovery_key(&master, &p1), recovery_key(&fill(0xF1), &p1), "per-master");
+    }
+
+    #[test]
+    fn recovery_envelope_round_trips() {
+        let rk = recovery_key(&fill(0xF0), &fill(0xA1));
+        let opening = sample_opening();
+        let env = seal_recovery(&rk, &opening);
+        // the ciphertext must not be the plaintext (keystream actually applied)
+        assert_ne!(&env.ciphertext[..16], &opening.amount.to_be_bytes()[..]);
+        let recovered = open_recovery(&rk, &env).expect("opens with the right key");
+        assert_eq!(recovered.amount, opening.amount);
+        assert_eq!(recovered.blinding, opening.blinding);
+        assert_eq!(recovered.spend_pk, opening.spend_pk);
+        assert_eq!(recovered.lock_id, opening.lock_id);
+        assert_eq!(recovered.nk, opening.nk);
+        assert_eq!(recovered.leaf_index, opening.leaf_index);
+    }
+
+    #[test]
+    fn recovery_open_rejects_tamper_and_wrong_key() {
+        let rk = recovery_key(&fill(0xF0), &fill(0xA1));
+        let opening = sample_opening();
+        let mut env = seal_recovery(&rk, &opening);
+        // wrong key cannot open (MAC fails)
+        let wrong = recovery_key(&fill(0xF0), &fill(0xA2));
+        assert!(open_recovery(&wrong, &env).is_none(), "wrong key must not open");
+        // tampered ciphertext fails the MAC
+        env.ciphertext[0] ^= 0xFF;
+        assert!(open_recovery(&rk, &env).is_none(), "tampered ciphertext must be rejected");
+    }
+
+    #[test]
+    fn verify_recovery_reveal_binds_commitment_and_nullifier() {
+        // After the protocol decrypts a defaulted position's opening, the opening must reconstruct
+        // the EXACT on-chain LOCKED note + its nullifier — otherwise a borrower could escrow garbage
+        // to dodge seizure. This is the soundness core of the recovery mechanism.
+        let opening = sample_opening();
+        let c = note_commitment(
+            DOMAIN_LOCKED,
+            opening.amount,
+            &opening.blinding,
+            &opening.spend_pk,
+            &opening.lock_id,
+        );
+        let nf = nullifier(&opening.nk, &c, opening.leaf_index);
+        assert!(verify_recovery_reveal(&opening, &c, &nf), "valid opening must verify");
+
+        // a wrong-amount opening reconstructs a different commitment -> rejected.
+        let mut bad = opening.clone();
+        bad.amount += 1;
+        assert!(!verify_recovery_reveal(&bad, &c, &nf), "mismatched opening must fail");
+    }
+
+    // ---- seize joinsplit (spend the LOCKED note: T to liquidator, change to borrower) ----
+
+    fn build_seize_input(amount: u128, seized: u128) -> SeizeInput {
+        let blinding_in = fill(0x2A);
+        let spend_pk = fill(0x2B); // borrower's spend key (owns the LOCKED note + the change)
+        let nk = fill(0x2C);
+        let lock_id = fill(0x2D);
+        let liquidator_pk = fill(0x2E);
+        let blinding_liq = fill(0x2F);
+        let blinding_change = fill(0x30);
+
+        // LOCKED note at leaf 0 of a depth-2 empty Ethereum pool tree.
+        let c_in = note_commitment(DOMAIN_LOCKED, amount, &blinding_in, &spend_pk, &lock_id);
+        let siblings_eth = vec![Z0, z1()];
+        let root_eth = merkle_root_from_path(&c_in, 0, &siblings_eth);
+        let nf = nullifier(&nk, &c_in, 0);
+
+        // Soroban liquidated-tree: liquidated_leaf(lockHandle) at leaf 0 of a depth-2 empty tree.
+        let ll = liquidated_leaf(&lock_handle(&lock_id));
+        let siblings_liq = vec![Z0, z1()];
+        let root_liq = merkle_root_from_path(&ll, 0, &siblings_liq);
+
+        // Outputs: liquidator AVAILABLE note of the PUBLIC `seized`, change AVAILABLE note of the
+        // hidden remainder back to the borrower.
+        let c_liq = note_commitment(DOMAIN_AVAILABLE, seized, &blinding_liq, &liquidator_pk, &[0u8; 32]);
+        let c_change =
+            note_commitment(DOMAIN_AVAILABLE, amount - seized, &blinding_change, &spend_pk, &[0u8; 32]);
+
+        SeizeInput {
+            root_eth,
+            root_liq,
+            seized,
+            nullifier_in: nf,
+            commitment_liquidator: c_liq,
+            commitment_change: c_change,
+            amount,
+            blinding_in,
+            spend_pk,
+            nk,
+            lock_id,
+            leaf_index: 0,
+            siblings_eth,
+            liquidated_leaf_index: 0,
+            siblings_liq,
+            liquidator_pk,
+            blinding_liquidator: blinding_liq,
+            blinding_change,
+        }
+    }
+
+    #[test]
+    fn verify_seize_happy_path() {
+        let amount = 6_000_000_000_000_000_000u128;
+        let seized = 4_000_000_000_000_000_000u128; // the proven floor T (public)
+        let input = build_seize_input(amount, seized);
+        let journal = verify_seize(&input);
+        let expected = encode_seize_journal(
+            &input.root_eth,
+            &input.root_liq,
+            seized,
+            &input.nullifier_in,
+            &input.commitment_liquidator,
+            &input.commitment_change,
+        );
+        assert_eq!(journal, expected);
+        // the HIDDEN collateral amount must never leak; only the public `seized` floor appears.
+        assert!(!journal.windows(16).any(|w| w == amount.to_be_bytes()), "amount leaked");
+    }
+
+    #[test]
+    #[should_panic(expected = "locked note not in pool")]
+    fn verify_seize_rejects_wrong_eth_membership() {
+        let mut input = build_seize_input(6_000, 4_000);
+        input.siblings_eth[0] = fill(0xFF);
+        verify_seize(&input);
+    }
+
+    #[test]
+    #[should_panic(expected = "bad nullifier")]
+    fn verify_seize_rejects_wrong_nk() {
+        let mut input = build_seize_input(6_000, 4_000);
+        input.nk = fill(0x99);
+        verify_seize(&input);
+    }
+
+    #[test]
+    #[should_panic(expected = "position not liquidated on Stellar")]
+    fn verify_seize_rejects_non_liquidated() {
+        // THE GATE: without a valid liquidated_leaf membership in R_liq, seize fails — collateral
+        // can only be seized after the vault marked the position LIQUIDATED. Break the Soroban path.
+        let mut input = build_seize_input(6_000, 4_000);
+        input.siblings_liq[0] = fill(0xEE);
+        verify_seize(&input);
+    }
+
+    #[test]
+    #[should_panic(expected = "seized exceeds collateral")]
+    fn verify_seize_rejects_seizing_more_than_collateral() {
+        // The liquidator cannot seize more than the note is worth (the change would underflow).
+        // step-5 guard fires before the change commitment is recomputed.
+        let mut input = build_seize_input(6_000, 4_000);
+        input.seized = 9_000; // > amount (6_000)
+        verify_seize(&input);
+    }
+
+    #[test]
+    #[should_panic(expected = "bad change commitment")]
+    fn verify_seize_rejects_change_inflation() {
+        // Claim a change note worth MORE than `amount - seized` -> value not conserved -> rejected.
+        let mut input = build_seize_input(6_000, 4_000);
+        input.commitment_change = note_commitment(
+            DOMAIN_AVAILABLE,
+            5_000, // > amount - seized (= 2_000)
+            &input.blinding_change,
+            &input.spend_pk,
+            &[0u8; 32],
+        );
+        verify_seize(&input);
+    }
+
+    #[test]
+    fn seize_journal_layout_is_fixed() {
+        let re = fill(0x5A);
+        let rl = fill(0x6B);
+        let nf = fill(0x7C);
+        let cl = fill(0x8D);
+        let cc = fill(0x9E);
+        let seized: u128 = 0x0102_0304_0506_0708_090A_0B0C_0D0E_0F10;
+        let j = encode_seize_journal(&re, &rl, seized, &nf, &cl, &cc);
+        assert_eq!(j.len(), SEIZE_JOURNAL_LEN);
+        assert_eq!(&j[0..32], &re);
+        assert_eq!(&j[32..64], &rl);
+        assert_eq!(&j[64..80], &seized.to_be_bytes());
+        assert_eq!(&j[80..112], &nf);
+        assert_eq!(&j[112..144], &cl);
+        assert_eq!(&j[144..176], &cc);
     }
 
     #[test]
