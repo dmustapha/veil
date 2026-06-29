@@ -4,9 +4,9 @@
 > against the now-retired vault `CBK7UNIO…` with an interim **mock** verifier, before the real
 > Groth16 verifier was wired and the guest slot-binding bug was fixed. **It does not describe the
 > shipped system.** For the current, real on-chain facts — real RISC Zero Groth16 verifier
-> (`CDZRHQMX…FP5E5C2L`), hardened vault (`CBICAWGA…WVGILV`), fixed guest image_id
-> (`0xc1fb4c3a…`), and the real borrow tx `026d4af6…` — see **README.md** and the
-> "Post-DEBUG" section of **DEPLOYMENTS.md**. The numbers below (3.945 USDC, 50% LTV, mock
+> (`CDZRHQMX…FP5E5C2L`), current vault (`CDPYUWKD…WFX2D`, borrower-bound 172-byte journal), guest
+> image_id (`0x494bfee7…`), and the real borrow tx `dc5c1719…` — see **README.md** and the
+> "Post-rebake" section of **DEPLOYMENTS.md**. The numbers below (3.945 USDC, 50% LTV, mock
 > verifier) are from the superseded cycle and are intentionally left as a build record.
 
 A full cross-chain borrow→repay→unlock cycle on **real** Sepolia + Soroban testnets, with **real

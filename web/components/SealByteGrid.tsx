@@ -2,14 +2,14 @@ import { PROOF } from "@/lib/constants";
 import styles from "./SealByteGrid.module.css";
 
 /** Real selector 73 c4 57 ba (lime), rest deterministically seeded from the
- *  program image_id 0xc1fb4c3a via the same LCG used in the design source, so
+ *  program image_id 0x494bfee7 via the same LCG used in the design source, so
  *  the grid is identical on every render (SSR-stable, no Math.random). */
 const SELECTOR = [0x73, 0xc4, 0x57, 0xba];
 
 type Cell = { hex: string; sel: boolean; dx: string; dy: string; dr: string };
 
 function buildBytes(total: number): Cell[] {
-  let s = 0xc1fb4c3a >>> 0;
+  let s = 0x494bfee7 >>> 0;
   const nb = () => {
     s = (s * 1103515245 + 12345) >>> 0;
     return (s >>> 16) & 0xff;

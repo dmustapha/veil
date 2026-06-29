@@ -10,7 +10,7 @@ function buildHexWallpaper() {
   const glyph = "0123456789abcdef";
   let hex = "73c457ba";
   for (let i = 0; i < 4200; i++) hex += glyph[(rnd() >>> (i % 24)) & 0xf];
-  const id = "c1fb4c3a7577b245";
+  const id = "494bfee7901207ad";
   let out = "";
   for (let j = 0; j < hex.length; j += 2) {
     out += hex.substr(j, 2);

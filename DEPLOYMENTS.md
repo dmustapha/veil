@@ -63,6 +63,25 @@ After the security audit fixed the CRITICAL guest slot-binding bug, the guest wa
   - adds: checkpoint freshness guard, Reflector staleness check, CEI ordering
 - Prior vault `CAV46LV5…WJJY` (pre-hardening) superseded by the above.
 
+## Post-rebake — borrower-bound journal + tightened oracle (CURRENT)
+Pre-submission TIER 2: the journal now binds the borrower (closes the bearer-redeemable-proof hole,
+H-B) and the oracle staleness window dropped 24h → 30min. The guest changed, so image_id re-baked
+(CI run 28327243896) and the vault was redeployed.
+- **fixed guest image_id** `0x494bfee75ad39a6f61e13f496af1ca2b798cca229ef94c5a094723c9901207ad`
+  (172-byte journal: `{state_root, block, escrow, threshold, hashlock, nullifier, recipient}`)
+- new real proof: `guest/fixtures/real-proof.json` (seal selector `73c457ba`, recipient bound to veil-spike)
+- **VeilVault (CURRENT)**: `CDPYUWKD5OTYVWK6C3FQC2OEB3XK4DRAI7WJ5C3XQW6TY3UV2JQWFX2D`
+  - verifier = real Phase 0a verifier `CDZRHQMX…FP5E5C2L` (unchanged; seal selector matches), LTV 25%,
+    `MAX_PRICE_AGE_SECS` 1800
+  - checkpoint posted: block 11143924 → state_root `0xe8ad78ff…dc21a851`
+  - **REAL borrow (borrower-bound)**: tx `dc5c1719cc20a5d00c7bb0534b2520b40f7388fa879f1927ba123bee3b6694a6`
+    (disbursed 19686478 = 1.97 USDC to veil-spike; vault 2.90 → 0.93)
+  - **cheat-fails, all proven live on this vault**:
+    - tampered seal → `Error(Crypto, InvalidInput)` (BN254 trap), 0 USDC moved
+    - replay valid proof → `Error(Contract, #7 NullifierUsed)` (checkpoint fresh, so #7 fires before #15)
+    - thief redeems the proof to another account → `Error(Contract, #17 WrongRecipient)`, 0 USDC moved
+- Prior vault `CBICAWGA…WVGILV` (140-byte journal, no recipient) superseded by the above.
+
 ## Live app (deployed)
 - **https://veilzk.vercel.app** (Vercel, Next.js 15). Public, no auth. `/` landing + `/app` live workspace.
   - `/api/state` reads vault config/loan + Reflector price + escrow lock live (retry + cached fallback).
