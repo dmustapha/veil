@@ -251,6 +251,17 @@ const TECH = [
       </>
     ),
   },
+  {
+    Icon: KeyRound,
+    name: "Proof-as-authorization",
+    val: (
+      <>
+        A Soroban custom account whose <span className="mono">__check_auth</span>{" "}
+        verifies the proof on-chain, so the proof itself is the signature.
+        Native to Stellar; no EVM has this at the protocol level.
+      </>
+    ),
+  },
 ];
 
 function ChainTag({

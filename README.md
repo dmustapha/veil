@@ -42,6 +42,22 @@ Try it live: the `/app` page has a "Try the cheat" button that runs a real tampe
 
 **Where a fresh borrow runs.** The hosted site **https://veilzk.vercel.app** serves the full UI, all live on-chain reads (`/api/state`), and the real on-chain cheat-fail (`/api/cheat`). Generating a *new* proof needs the `gh` CLI and the Stellar admin key, which live on a keyed host, not on Vercel — so on the hosted site the proving backend honestly reports `unavailable` (503) rather than faking a proof. A fresh end-to-end borrow is run from that keyed host (or locally). See [web/PROVING.md](web/PROVING.md).
 
+## Proof-as-authorization (the Stellar-native move)
+
+The same Groth16 receipt verifies on any EVM, so the *verification* is portable. What is **not**
+portable is using the proof as the authorization itself. Veil ships a Soroban **custom account**
+(`contracts/account`) whose `__check_auth` verifies the RISC Zero seal on-chain, checks the
+journal's `recipient` binding, and consumes the nullifier — so **the proof is the signature**.
+When any contract calls the account's `require_auth()`, authorization is granted by a valid Veil
+proof, not by an ed25519 key. EVM has no protocol-level equivalent (ERC-4337 is app-level), which
+is what makes this venue non-substitutable.
+
+Proven live on testnet (no re-bake — it reuses the borrower-bound journal):
+
+- **VeilAccount**: [`CCS6MVAC4…UEIQ`](https://stellar.expert/explorer/testnet/contract/CCS6MVAC4FEGNE3RGJT7KBKH4J7HQEWERRTJOWD6R5YLYNIFWB7NUEIQ) — `__check_auth` runs the BN254 verifier.
+- **Real `__check_auth` transaction** (a proof authorized the call): [`dfd9b055…6393e173`](https://stellar.expert/explorer/testnet/tx/dfd9b05525f4ed2bf2b23f5226fb337699996b29877fe4ed366ca24d6393e173) — **succeeded**, consuming **34M of the 100M** instruction budget (fits with margin).
+- Logic covered by `contracts/account` tests: forged seal traps, wrong recipient and replay rejected.
+
 ## Tech stack
 
 - **ZK:** RISC Zero zkVM (Rust guest verifies an `eth_getProof` account + storage proof via `alloy-trie`), Groth16-BN254 wrap.
@@ -79,9 +95,10 @@ cd contracts/vault && cargo test        # 12/12
 ```
 contracts/escrow   Sepolia escrow (Foundry)
 contracts/vault    Soroban lending vault (soroban-sdk)
+contracts/account  Soroban custom account — proof-as-authorization (__check_auth)
 guest              RISC Zero guest + host + real proof fixture
 relayer            checkpoint poster + secret-reveal relayer
-web                Next.js thin client (/ landing + /app workspace)
+web                Next.js client (/, /app, /proof, /how-it-works)
 SCOPE.md           locked charter · ARCHITECTURE.md  build spec
 ```
 
