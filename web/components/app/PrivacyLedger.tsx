@@ -35,7 +35,7 @@ export function PrivacyLedger() {
           </div>
           <div className={styles.row}>
             <span className={styles.k}>Your Ethereum wallet</span>
-            <span className={`${styles.v} ${styles.leak}`}>0xe917…0Caf</span>
+            <span className={`${styles.v} ${styles.leak}`}>0x⟨your address⟩</span>
           </div>
           <div className={styles.row}>
             <span className={styles.k}>Recorded on Stellar</span>

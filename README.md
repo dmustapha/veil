@@ -52,6 +52,8 @@ When any contract calls the account's `require_auth()`, authorization is granted
 proof, not by an ed25519 key. EVM has no protocol-level equivalent (ERC-4337 is app-level), which
 is what makes this venue non-substitutable.
 
+Scope note (honest): this is a **deployed, tested, on-chain-proven capability**, not yet the auth path of the main `borrow` — today's borrow uses `require_auth()` on the borrower's key plus the journal `recipient` binding. The custom account is the demonstrated next step that makes the proof itself the authorizer, and it is bound to the demo borrower's recipient (a production version would self-bind).
+
 Proven live on testnet (no re-bake — it reuses the borrower-bound journal):
 
 - **VeilAccount**: [`CCS6MVAC4…UEIQ`](https://stellar.expert/explorer/testnet/contract/CCS6MVAC4FEGNE3RGJT7KBKH4J7HQEWERRTJOWD6R5YLYNIFWB7NUEIQ) — `__check_auth` runs the BN254 verifier.

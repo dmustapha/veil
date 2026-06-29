@@ -38,8 +38,13 @@ import { readCheckpoint } from "@/lib/server/soroban";
 
 const run = promisify(execFile);
 
-/** Repo whose prove.yml we dispatch. Override with GITHUB_REPO. */
-const REPO = process.env.GITHUB_REPO || "dmustapha/veil";
+/**
+ * Repo whose prove.yml we dispatch a real user's fixture to. Defaults to the PRIVATE prover repo
+ * (dmustapha/veil-prover) so the witness never reaches a public CI surface; the public submission
+ * repo's prove.yml only builds the committed public demo fixture and accepts no user input.
+ * Override with GITHUB_REPO (e.g. a self-hosted runner repo or a Bonsai-backed one).
+ */
+const REPO = process.env.GITHUB_REPO || "dmustapha/veil-prover";
 /** Stellar CLI identity that is the vault admin (the only one that may post checkpoints). */
 const ADMIN_SOURCE = process.env.STELLAR_ADMIN_SOURCE || "veil-spike";
 const STELLAR_NETWORK = process.env.STELLAR_NETWORK || "testnet";
@@ -56,10 +61,21 @@ export class Unavailable extends Error {}
  * HMAC-signed token, and status only unwraps a token whose MAC verifies — so only the caller who
  * started the proof (and was handed the token by POST /api/prove) can poll it.
  *
- * Secret from PROVE_TOKEN_SECRET on the keyed host; otherwise a per-process random secret (the
- * backend is a single long-lived process — proving 503s on stock serverless before reaching here).
+ * Secret from PROVE_TOKEN_SECRET. The keyed host (where proving actually runs) MUST set it so
+ * tokens stay valid across a process restart mid-proof; if it is unset we fall back to a
+ * per-process random secret and warn (fine for dev / for serverless where proving 503s before
+ * any token is issued, but NOT for a long-lived keyed host).
  */
-const TOKEN_SECRET = process.env.PROVE_TOKEN_SECRET || randomBytes(32).toString("hex");
+const TOKEN_SECRET =
+  process.env.PROVE_TOKEN_SECRET ||
+  (() => {
+    if (process.env.NODE_ENV === "production") {
+      console.warn(
+        "[veil] PROVE_TOKEN_SECRET is unset — using a per-process random secret. Set it on the keyed host so proof-status tokens survive a restart."
+      );
+    }
+    return randomBytes(32).toString("hex");
+  })();
 function signRunId(runId: string): string {
   const mac = createHmac("sha256", TOKEN_SECRET).update(runId).digest("base64url");
   return `${runId}.${mac}`;

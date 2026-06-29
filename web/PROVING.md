@@ -63,7 +63,7 @@ added, which is what set this image id.)
 | Sepolia RPC that serves `eth_getProof` at the proven block | `SEPOLIA_RPC_URL` (archive provider recommended), else a public node | recent blocks work on the public node; old/deep blocks need an archive RPC token |
 | `@stellar/stellar-sdk` reachable testnet RPC | `SOROBAN_RPC` (public testnet) | checkpoint read/post fails |
 
-Config env (all optional, sane defaults): `GITHUB_REPO` (`dmustapha/veil`),
+Config env (all optional, sane defaults): `GITHUB_REPO` (`dmustapha/veil-prover`, the PRIVATE prover repo),
 `STELLAR_ADMIN_SOURCE` (`veil-spike`), `STELLAR_NETWORK` (`testnet`),
 `PROVE_CONFIRMATIONS` (`6`), `SEPOLIA_RPC_URL`.
 
@@ -89,20 +89,22 @@ is that slot. So the proving surface must keep that value private:
   job token handed to the caller by `POST /api/prove`, so a real proof cannot be harvested by
   polling guessable run ids.
 
-**The one surface this does not fully cover is a *public* CI repo.** A `workflow_dispatch` input
-value and an uploaded artifact are world-visible on a public repository — so a real user's private
-amount must **not** be proven on the public submission repo. The demo's pinned fixture is exempt:
-its amount (0.01 ETH) is already public on Etherscan and committed under `guest/fixtures`, so
-proving it on public CI leaks nothing new. For a real user, route proving to a **private prover**:
+**A *public* CI repo cannot host real-user proving** — a `workflow_dispatch` input value and an
+uploaded artifact are world-visible there. This is enforced structurally, not by convention:
 
-- **Bonsai** (the prover operator sees the witness — disclosable — but the public does not), or
-- a **self-hosted runner / private repo** that runs the identical, unchanged guest (so the image id
-  stays `0x494bfee7…` and the deployed Soroban verifier keeps accepting the seal).
+- The **public submission repo** (`dmustapha/veil`) `prove.yml` accepts **no user fixture input** —
+  it only builds the committed, public demo fixture on push, so it physically cannot receive a
+  private amount.
+- Real-user proving defaults to the **private repo `dmustapha/veil-prover`** — a byte-identical
+  guest mirror, so the image id stays `0x494bfee7…` and the deployed verifier keeps accepting the
+  seal. `dispatchProof` targets `GITHUB_REPO` (default `dmustapha/veil-prover`); override it for a
+  self-hosted runner or a **Bonsai**-backed prover (Bonsai's operator sees the witness —
+  disclosable — but the public does not).
 
-`dispatchProof` already accepts a `GITHUB_REPO` override, so pointing real-user proving at a private
-repo is a one-env change with no code or guest change. The bearer-redeemable-proof hole (a stolen
-`{seal, journal}` redeemed by a different recipient) is closed at the protocol layer by binding the
-borrower address into the journal and asserting it on-chain in `borrow` (see the vault + guest).
+The demo's pinned fixture is exempt either way: its amount (0.01 ETH) is already public on Etherscan
+and committed under `guest/fixtures`. And the bearer-redeemable-proof hole (a stolen `{seal,
+journal}` redeemed by a different recipient) is closed at the protocol layer by the journal
+`recipient` binding asserted on-chain in `borrow` — so even a leaked proof is useless to a thief.
 
 ## Swapping in Bonsai or a rented prover box
 
