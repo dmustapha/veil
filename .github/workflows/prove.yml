@@ -10,17 +10,12 @@ name: prove
 # value is world-visible) — route real-user proving to a private prover (Bonsai / self-hosted
 # runner / private repo). See web/PROVING.md. The steps below never print witness contents.
 
+# PRIVACY: this PUBLIC repo proves ONLY the committed (public) demo fixture. It deliberately accepts
+# NO user-fixture input, so a real user's private amount can never be dispatched to a public CI
+# surface. Real-user proving runs on the PRIVATE repo dmustapha/veil-prover (a byte-identical guest
+# mirror) or a self-hosted / Bonsai prover. See web/PROVING.md.
 on:
-  workflow_dispatch:
-    inputs:
-      fixture_b64:
-        description: "base64 of a user's eth_getProof JSON (overwrites the committed fixture)"
-        required: false
-        default: ""
-      meta_b64:
-        description: "base64 of the matching fixture_meta JSON"
-        required: false
-        default: ""
+  workflow_dispatch: {}
   push:
     paths:
       - "guest/**"
@@ -59,24 +54,8 @@ jobs:
           nproc
           rzup show || true
 
-      # When dispatched with a user's lock, overwrite the committed fixture so the host proves
-      # the USER's lock. The host (guest/host) and the guest are untouched: they read these two
-      # files exactly as before. With no inputs (push, or a plain dispatch) the committed pinned
-      # fixture is used, preserving the original behavior.
-      - name: Write user fixture (if provided)
-        if: ${{ github.event.inputs.fixture_b64 != '' }}
-        working-directory: guest/fixtures
-        # PRIVACY: the fixture/meta carry the PRIVATE collateral amount (an eth_getProof storage
-        # value IS the slot contents per EIP-1186). Pass them through `env:` (NOT inline ${{ }}
-        # interpolation, which would expand into the run-log shell line) and NEVER print their
-        # contents. A public CI surface would otherwise publish the exact amount the proof hides.
-        env:
-          FIXTURE_B64: ${{ github.event.inputs.fixture_b64 }}
-          META_B64: ${{ github.event.inputs.meta_b64 }}
-        run: |
-          printf '%s' "$FIXTURE_B64" | base64 -d > eth_getproof_pinned.json
-          printf '%s' "$META_B64" | base64 -d > fixture_meta.json
-          echo "user fixture written (contents withheld; amount is private)"
+      # This public repo always proves the COMMITTED (public) demo fixture. No user-fixture input
+      # path exists here — real-user proving lives on the private veil-prover repo (see header).
 
       - name: Generate real Groth16 proof
         working-directory: guest
