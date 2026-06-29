@@ -13,6 +13,9 @@ pub const NOTE_TAG: &[u8] = b"VEIL_NOTE";
 pub const NF_TAG: &[u8] = b"VEIL_NF";
 pub const POS_TAG: &[u8] = b"VEIL_POS";
 pub const LOCK_TAG: &[u8] = b"VEIL_LOCK";
+/// Soroban repaid-tree leaf tag. The vault inserts `repaid_leaf(lockHandle)` on repay; the unlock
+/// proof folds it to the Soroban repaid-root `R_sor` — the repay-proof that gates unlock.
+pub const REPAID_TAG: &[u8] = b"VEIL_REPAID";
 
 /// Note domains.
 pub const DOMAIN_AVAILABLE: u8 = 0x00;
@@ -65,6 +68,12 @@ pub fn position_id(loan_secret: &[u8; 32]) -> [u8; 32] {
 /// lockHandle = SHA256(LOCK_TAG ‖ lockId[32]). Ties the loan to one specific on-chain lock.
 pub fn lock_handle(lock_id: &[u8; 32]) -> [u8; 32] {
     sha256(&[LOCK_TAG, lock_id])
+}
+
+/// repaidLeaf = SHA256(REPAID_TAG ‖ lockHandle[32]). The leaf the Soroban vault appends when a
+/// position is repaid; its membership in `R_sor` is the repay-proof the unlock guest requires.
+pub fn repaid_leaf(lock_handle: &[u8; 32]) -> [u8; 32] {
+    sha256(&[REPAID_TAG, lock_handle])
 }
 
 /// Fold a leaf up its Merkle path to a root, ordering siblings by the leaf-index bit at each
@@ -187,6 +196,93 @@ pub fn verify_lock(input: &LockInput) -> [u8; LOCK_JOURNAL_LEN] {
     assert!(c_out == input.commitment_out, "bad output commitment");
 
     encode_lock_journal(&input.root, &nf, &c_out, &input.lock_id)
+}
+
+/// Unlock joinsplit journal: `R_eth(32) ‖ R_sor(32) ‖ nullifier_in(32) ‖ commitment_out(32)`.
+/// `lockId` is deliberately NOT published — its binding is enforced inside the guest (the spent
+/// LOCKED note commits it, and `repaid_leaf(lock_handle(lockId))` must be in `R_sor`), so the
+/// public unlock event carries no explicit link back to the lock beyond what timing already leaks.
+pub const UNLOCK_JOURNAL_LEN: usize = 128;
+
+/// Canonical 128-byte unlock journal (the public output of the unlock joinsplit proof).
+pub fn encode_unlock_journal(
+    root_eth: &[u8; 32],
+    root_sor: &[u8; 32],
+    nullifier_in: &[u8; 32],
+    commitment_out: &[u8; 32],
+) -> [u8; UNLOCK_JOURNAL_LEN] {
+    let mut out = [0u8; UNLOCK_JOURNAL_LEN];
+    out[0..32].copy_from_slice(root_eth);
+    out[32..64].copy_from_slice(root_sor);
+    out[64..96].copy_from_slice(nullifier_in);
+    out[96..128].copy_from_slice(commitment_out);
+    out
+}
+
+/// Unlock joinsplit witness: spend one LOCKED note and mint one AVAILABLE note of the SAME hidden
+/// amount — but ONLY against a proof that the loan tied to this lock was repaid on Stellar.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct UnlockInput {
+    // --- public (re-committed) ---
+    pub root_eth: [u8; 32],
+    pub root_sor: [u8; 32],
+    pub nullifier_in: [u8; 32],
+    pub commitment_out: [u8; 32],
+    // --- private witnesses ---
+    pub amount: u128,
+    pub blinding_in: [u8; 32],
+    pub spend_pk: [u8; 32],
+    pub nk: [u8; 32],
+    pub lock_id: [u8; 32],
+    pub leaf_index: u64,
+    pub siblings_eth: Vec<[u8; 32]>,
+    pub blinding_out: [u8; 32],
+    pub repaid_leaf_index: u64,
+    pub siblings_sor: Vec<[u8; 32]>,
+}
+
+/// The complete unlock-guest logic as a pure function. Reverse of `verify_lock`: prove ownership of
+/// a LOCKED note in the Ethereum pool root, prove (THE INVARIANT) that the position tied to its
+/// `lock_id` was REPAID on Stellar — `repaid_leaf(lock_handle(lock_id))` is a member of the Soroban
+/// repaid-root `R_sor` — then publish the LOCKED note's nullifier and mint an AVAILABLE note of the
+/// SAME amount. Value is conserved structurally (one private `amount` feeds both commitments) and
+/// the repay-proof is non-optional, so a borrower can never recover spendable collateral without
+/// repaying (the v1 "keep loan + collateral" hole is closed). Panics (→ proof fails) on violation.
+pub fn verify_unlock(input: &UnlockInput) -> [u8; UNLOCK_JOURNAL_LEN] {
+    // 1. Recompute the LOCKED input note (aux = lock_id).
+    let c_in = note_commitment(
+        DOMAIN_LOCKED,
+        input.amount,
+        &input.blinding_in,
+        &input.spend_pk,
+        &input.lock_id,
+    );
+
+    // 2. The LOCKED note is a member of the Ethereum pool root.
+    let computed_eth = merkle_root_from_path(&c_in, input.leaf_index, &input.siblings_eth);
+    assert!(computed_eth == input.root_eth, "locked note not in pool");
+
+    // 3. The published nullifier is the correct key-derived nullifier (proves nk ownership).
+    let nf = nullifier(&input.nk, &c_in, input.leaf_index);
+    assert!(nf == input.nullifier_in, "bad nullifier");
+
+    // 4. THE REPAY-PROOF: the repaid leaf for THIS lock is a member of the Soroban repaid-root.
+    //    repaid_leaf binds to lock_handle(lock_id), the SAME lock_id the spent LOCKED note commits.
+    let rl = repaid_leaf(&lock_handle(&input.lock_id));
+    let computed_sor = merkle_root_from_path(&rl, input.repaid_leaf_index, &input.siblings_sor);
+    assert!(computed_sor == input.root_sor, "position not repaid on Stellar");
+
+    // 5. Mint an AVAILABLE note of the SAME amount (value conserved), aux = 0.
+    let c_out = note_commitment(
+        DOMAIN_AVAILABLE,
+        input.amount,
+        &input.blinding_out,
+        &input.spend_pk,
+        &[0u8; 32],
+    );
+    assert!(c_out == input.commitment_out, "bad output commitment");
+
+    encode_unlock_journal(&input.root_eth, &input.root_sor, &nf, &c_out)
 }
 
 /// Borrow proof witness. Public fields are re-committed to the journal; the rest stay secret
@@ -503,6 +599,125 @@ mod tests {
         assert_eq!(&j[32..64], &nf);
         assert_eq!(&j[64..96], &co);
         assert_eq!(&j[96..128], &lid);
+    }
+
+    // ---- unlock joinsplit (item 7: spend LOCKED -> mint AVAILABLE, gated on a Stellar repay-proof) ----
+
+    fn build_unlock_input(amount: u128) -> UnlockInput {
+        let blinding_in = fill(0x1A);
+        let spend_pk = fill(0x1B);
+        let nk = fill(0x1C);
+        let lock_id = fill(0x1D);
+        let blinding_out = fill(0x1E);
+
+        // LOCKED note at leaf 0 of a depth-2 empty Ethereum pool tree.
+        let c_in = note_commitment(DOMAIN_LOCKED, amount, &blinding_in, &spend_pk, &lock_id);
+        let siblings_eth = vec![Z0, z1()];
+        let root_eth = merkle_root_from_path(&c_in, 0, &siblings_eth);
+        let nf = nullifier(&nk, &c_in, 0);
+
+        // Soroban repaid-tree: repaidLeaf(lockHandle) at leaf 0 of a depth-2 empty tree.
+        let lh = lock_handle(&lock_id);
+        let rl = repaid_leaf(&lh);
+        let siblings_sor = vec![Z0, z1()];
+        let root_sor = merkle_root_from_path(&rl, 0, &siblings_sor);
+
+        // AVAILABLE output note of the SAME amount (aux = 0).
+        let c_out = note_commitment(DOMAIN_AVAILABLE, amount, &blinding_out, &spend_pk, &[0u8; 32]);
+
+        UnlockInput {
+            root_eth,
+            root_sor,
+            nullifier_in: nf,
+            commitment_out: c_out,
+            amount,
+            blinding_in,
+            spend_pk,
+            nk,
+            lock_id,
+            leaf_index: 0,
+            siblings_eth,
+            blinding_out,
+            repaid_leaf_index: 0,
+            siblings_sor,
+        }
+    }
+
+    #[test]
+    fn verify_unlock_happy_path() {
+        let amount = 4_000_000_000_000_000_000u128;
+        let input = build_unlock_input(amount);
+        let journal = verify_unlock(&input);
+        let expected = encode_unlock_journal(
+            &input.root_eth,
+            &input.root_sor,
+            &input.nullifier_in,
+            &input.commitment_out,
+        );
+        assert_eq!(journal, expected);
+        assert!(!journal.windows(16).any(|w| w == amount.to_be_bytes()), "amount leaked");
+    }
+
+    #[test]
+    #[should_panic(expected = "locked note not in pool")]
+    fn verify_unlock_rejects_wrong_eth_membership() {
+        let mut input = build_unlock_input(1_000);
+        input.siblings_eth[0] = fill(0xFF);
+        verify_unlock(&input);
+    }
+
+    #[test]
+    #[should_panic(expected = "bad nullifier")]
+    fn verify_unlock_rejects_wrong_nk() {
+        let mut input = build_unlock_input(1_000);
+        input.nk = fill(0x99);
+        verify_unlock(&input);
+    }
+
+    #[test]
+    #[should_panic(expected = "position not repaid on Stellar")]
+    fn verify_unlock_rejects_unrepaid_position() {
+        // THE INVARIANT: without a valid repaidLeaf membership in R_sor, unlock fails — you cannot
+        // recover spendable collateral unless repay() ran on Stellar. Break the Soroban path.
+        let mut input = build_unlock_input(1_000);
+        input.siblings_sor[0] = fill(0xEE);
+        verify_unlock(&input);
+    }
+
+    #[test]
+    #[should_panic(expected = "bad output commitment")]
+    fn verify_unlock_rejects_value_inflation() {
+        let mut input = build_unlock_input(1_000);
+        input.commitment_out = note_commitment(
+            DOMAIN_AVAILABLE,
+            9_999_999, // mint more than was locked
+            &input.blinding_out,
+            &input.spend_pk,
+            &[0u8; 32],
+        );
+        verify_unlock(&input);
+    }
+
+    #[test]
+    fn unlock_journal_layout_is_fixed() {
+        let re = fill(0x5A);
+        let rs = fill(0x6B);
+        let nf = fill(0x7C);
+        let co = fill(0x8D);
+        let j = encode_unlock_journal(&re, &rs, &nf, &co);
+        assert_eq!(j.len(), UNLOCK_JOURNAL_LEN);
+        assert_eq!(&j[0..32], &re);
+        assert_eq!(&j[32..64], &rs);
+        assert_eq!(&j[64..96], &nf);
+        assert_eq!(&j[96..128], &co);
+    }
+
+    #[test]
+    fn repaid_leaf_is_domain_separated() {
+        let lh = fill(0x77);
+        // repaid leaf must not collide with the lock-handle it commits, nor with a raw note hash.
+        assert_ne!(repaid_leaf(&lh), lh);
+        assert_eq!(repaid_leaf(&lh), repaid_leaf(&lh)); // deterministic
     }
 
     #[test]
