@@ -26,11 +26,15 @@ export const cfg = {
   sepoliaRpc: process.env.SEPOLIA_RPC_URL || escrowEnv.SEPOLIA_RPC_URL,
   ethKey: process.env.PRIVATE_KEY || escrowEnv.PRIVATE_KEY,
   escrow: escrowEnv.ESCROW_ADDRESS || "0xb833ffEc3C1a3A0aB71a9c014fD174bA7F1eBd6F",
+  // v2 shielded note pool (Relayer A source); set at deploy time. Empty until VeilPool ships.
+  veilPool: process.env.VEILPOOL_ADDRESS || escrowEnv.VEILPOOL_ADDRESS || "",
   // Stellar (Soroban testnet)
   network: "testnet",
   stellarSource: "veil-spike",
   // CURRENT vault (borrower-bound 172-byte journal). Prior CBK7UNIO/CAV46LV5/CBICAWGA superseded.
   vault: "CDPYUWKD5OTYVWK6C3FQC2OEB3XK4DRAI7WJ5C3XQW6TY3UV2JQWFX2D",
+  // v2 lending vault (Relayer A target); set at deploy time. Empty until VeilVault v2 ships.
+  vaultV2: process.env.VAULT_V2_ID || escrowEnv.VAULT_V2_ID || "",
 };
 
 export function cast(args) {

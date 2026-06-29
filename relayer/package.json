@@ -6,6 +6,8 @@
   "description": "Veil relayers: Ethereum state-root checkpoints -> Soroban, and Stellar repay-secret -> Ethereum unlock. DISCLOSED TRUST (a light client replaces the checkpoint poster in future work).",
   "scripts": {
     "checkpoint": "node checkpoint-relayer.mjs",
-    "secret": "node secret-relayer.mjs"
+    "secret": "node secret-relayer.mjs",
+    "root": "node root-relayer.mjs",
+    "test": "node --test"
   }
 }
