@@ -721,6 +721,25 @@ mod tests {
     }
 
     #[test]
+    fn repaid_tree_matches_cross_impl_vector() {
+        // CROSS-IMPL VECTOR for the Soroban repaid-tree (R_sor). The depth-2 first-leaf root of
+        // repaid_leaf(lock_handle(lockId=0x02..02)) is asserted identically in vault-v2's
+        // `repaid_root_matches_cross_impl_vector`. If the guest fold and the Soroban incremental
+        // tree ever diverge, one of the two assertions breaks (unlock proofs would silently fail).
+        let lock_id = fill(0x02);
+        let rl = repaid_leaf(&lock_handle(&lock_id));
+        let root = merkle_root_from_path(&rl, 0, &[Z0, z1()]);
+        let pinned = hex_lit("078c403cbcb728559874cdc1be85abdf3396b2c047c1e11c624e38a22374d8eb");
+        assert_eq!(&root[..], &pinned[..], "repaid-tree root drifted from the shared vector");
+
+        // Same vector at the PRODUCTION depth (16): the repaid-tree root after inserting this leaf
+        // at index 0 of an empty depth-16 tree. Asserted identically in vault-v2 after one repay.
+        let root16 = merkle_root_from_path(&rl, 0, &zero_hashes(16));
+        let pinned16 = hex_lit("c560d2cefe358de23b6e70b7a5293e9d1926cbe6f40cc24df23eb10cd7f2df8e");
+        assert_eq!(&root16[..], &pinned16[..], "depth-16 repaid-tree root drifted");
+    }
+
+    #[test]
     fn zero_hashes_match_canonical_vectors() {
         let z = zero_hashes(4);
         assert_eq!(z.len(), 4);

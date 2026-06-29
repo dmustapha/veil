@@ -411,6 +411,52 @@ fn margin_tampered_journal_reverts() {
     assert_eq!(f.vault.get_position(&pid).unwrap().floor, 2 * UNIT); // unchanged
 }
 
+// ---- item 7: Soroban repaid-tree (R_sor) — the repay-proof the unlock guest folds ----
+
+fn b32_hex(env: &Env, s: &str) -> BytesN<32> {
+    let mut a = [0u8; 32];
+    for i in 0..32 {
+        a[i] = u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).unwrap();
+    }
+    BytesN::from_array(env, &a)
+}
+
+#[test]
+fn repaid_root_starts_empty() {
+    let f = setup(0);
+    // depth-16 empty-tree root (zeros[16]); shared with guest zero_hashes(16).
+    let empty16 = b32_hex(&f.env, "8fe6b1689256c0d385f42f5bbe2027a22c1996e110ba97c171d3e5948de92beb");
+    assert_eq!(f.vault.repaid_root(), empty16);
+    assert_eq!(f.vault.repaid_count(), 0);
+}
+
+#[test]
+fn repay_appends_to_repaid_tree() {
+    let f = setup(0);
+    let (_root, pid, _lock) = open_loan(&f);
+    let before = f.vault.repaid_root();
+    f.vault.repay(&pid);
+    assert_ne!(f.vault.repaid_root(), before, "repay must append a repaid leaf");
+    assert_eq!(f.vault.repaid_count(), 1);
+}
+
+#[test]
+fn repaid_root_matches_cross_impl_vector() {
+    // CROSS-IMPL VECTOR (depth 16): use the journal lock_handle the guest used as the repaid_leaf
+    // input — lock_handle(lockId=0x02..02) = 188b06b2…b244. After one repay the Soroban tree root
+    // must equal the guest's `merkle_root_from_path(repaid_leaf(lh), 0, zero_hashes(16))`.
+    let f = setup(0);
+    let root = prime(&f, 1_000_000_0000000i128);
+    let pid = b32(&f.env, 0x01);
+    let lock_h = b32_hex(&f.env, "188b06b26be1f9e52c6083507a0182e1bb2ff1be08cb0a7d0b4b5cde4935b244");
+    let j = journal(&f.env, &root, 2 * UNIT, &pid, &lock_h, &f.borrower);
+    f.vault.borrow(&digest_seal(&f.env, &j), &j, &f.borrower);
+    f.vault.repay(&pid);
+
+    let expected = b32_hex(&f.env, "c560d2cefe358de23b6e70b7a5293e9d1926cbe6f40cc24df23eb10cd7f2df8e");
+    assert_eq!(f.vault.repaid_root(), expected, "R_sor drifted from the shared guest vector");
+}
+
 #[test]
 fn double_init_rejected() {
     let f = setup(0);

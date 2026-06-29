@@ -17,8 +17,10 @@
 mod journal;
 #[cfg(test)]
 mod test;
+mod tree;
 
 use journal::Journal;
+use tree::RepaidTree;
 use risc0_interface::RiscZeroVerifierClient;
 use soroban_sdk::{
     contract, contractclient, contracterror, contractimpl, contracttype, token, Address, Bytes,
@@ -135,6 +137,7 @@ enum DataKey {
     Position(BytesN<32>),   // position_id -> Position
     LockUsed(BytesN<32>),   // lockHandle -> true (PERMANENT; never deleted)
     Shares(Address),        // LP share balance
+    RepaidTree,             // Soroban repaid-position tree (R_sor)
 }
 
 #[contract]
@@ -173,6 +176,8 @@ impl VeilVault {
             last_accrual: env.ledger().sequence(),
         };
         env.storage().instance().set(&DataKey::Pool, &pool);
+        // Empty repaid-tree (R_sor); a leaf is appended on each repay.
+        env.storage().instance().set(&DataKey::RepaidTree, &tree::empty(&env));
         Ok(())
     }
 
@@ -420,6 +425,14 @@ impl VeilVault {
         env.storage().persistent().set(&pk, &pos);
         Self::save_pool(&env, &pool);
         Self::bump(&env, &pk);
+
+        // Append repaid_leaf(lockHandle) to the repaid-tree → new R_sor. Relayer B posts this to
+        // Ethereum; the unlock guest proves membership against it (the repay-proof that lets the
+        // borrower recover their LOCKED collateral — and ONLY after repaying).
+        let mut rt: RepaidTree = env.storage().instance().get(&DataKey::RepaidTree).unwrap();
+        let leaf = tree::repaid_leaf(&env, &pos.lock_handle);
+        tree::insert(&env, &mut rt, leaf);
+        env.storage().instance().set(&DataKey::RepaidTree, &rt);
         Ok(debt)
     }
 
@@ -450,6 +463,16 @@ impl VeilVault {
     }
     pub fn is_root_known(env: Env, root: BytesN<32>) -> bool {
         env.storage().persistent().has(&DataKey::Root(root))
+    }
+    /// Current Soroban repaid-root `R_sor` (Relayer B posts this to Ethereum for unlock proofs).
+    pub fn repaid_root(env: Env) -> BytesN<32> {
+        let rt: RepaidTree = env.storage().instance().get(&DataKey::RepaidTree).unwrap();
+        rt.root
+    }
+    /// Number of repaid positions appended to the repaid-tree.
+    pub fn repaid_count(env: Env) -> u32 {
+        let rt: RepaidTree = env.storage().instance().get(&DataKey::RepaidTree).unwrap();
+        rt.next_index
     }
     pub fn is_lock_used(env: Env, lock_handle: BytesN<32>) -> bool {
         env.storage().persistent().has(&DataKey::LockUsed(lock_handle))
