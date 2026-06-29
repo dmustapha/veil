@@ -294,6 +294,123 @@ fn repay_twice_rejected() {
     assert_eq!(f.vault.try_repay(&pid), Err(Ok(Error::AlreadyClosed)));
 }
 
+// ---- item 6: private margin call (raise the proven floor without revealing the amount) ----
+
+/// Open a 2-unit loan and return (root, position_id, lock_handle) for margin tests.
+fn open_loan(f: &Fixture) -> (BytesN<32>, BytesN<32>, BytesN<32>) {
+    let root = prime(f, 1_000_000_0000000i128);
+    let pid = b32(&f.env, 0x01);
+    let lock = b32(&f.env, 0x02);
+    let j = journal(&f.env, &root, 2 * UNIT, &pid, &lock, &f.borrower);
+    f.vault.borrow(&digest_seal(&f.env, &j), &j, &f.borrower);
+    (root, pid, lock)
+}
+
+#[test]
+fn happy_path_margin_raises_floor() {
+    let f = setup(0);
+    let (root, pid, lock) = open_loan(&f);
+    assert_eq!(f.vault.get_position(&pid).unwrap().floor, 2 * UNIT);
+
+    // Re-prove the SAME locked note clears a HIGHER floor (5 units). No new USDC moves.
+    let bal_before = f.usdc.balance(&f.borrower);
+    let jm = journal(&f.env, &root, 5 * UNIT, &pid, &lock, &f.borrower);
+    let new_floor = f.vault.margin(&digest_seal(&f.env, &jm), &jm, &f.borrower);
+
+    assert_eq!(new_floor, 5 * UNIT);
+    assert_eq!(f.vault.get_position(&pid).unwrap().floor, 5 * UNIT);
+    assert_eq!(f.usdc.balance(&f.borrower), bal_before); // defensive only — no disbursement
+}
+
+#[test]
+fn margin_on_missing_position_rejected() {
+    let f = setup(0);
+    let root = prime(&f, 1_000_000_0000000i128);
+    let jm = journal(&f.env, &root, 5 * UNIT, &b32(&f.env, 0x55), &b32(&f.env, 0x02), &f.borrower);
+    assert_eq!(
+        f.vault.try_margin(&digest_seal(&f.env, &jm), &jm, &f.borrower),
+        Err(Ok(Error::NoPosition))
+    );
+}
+
+#[test]
+fn margin_must_strictly_raise_floor() {
+    let f = setup(0);
+    let (root, pid, lock) = open_loan(&f);
+    // equal floor -> rejected
+    let jeq = journal(&f.env, &root, 2 * UNIT, &pid, &lock, &f.borrower);
+    assert_eq!(
+        f.vault.try_margin(&digest_seal(&f.env, &jeq), &jeq, &f.borrower),
+        Err(Ok(Error::FloorNotRaised))
+    );
+    // lower floor -> rejected
+    let jlo = journal(&f.env, &root, UNIT, &pid, &lock, &f.borrower);
+    assert_eq!(
+        f.vault.try_margin(&digest_seal(&f.env, &jlo), &jlo, &f.borrower),
+        Err(Ok(Error::FloorNotRaised))
+    );
+    assert_eq!(f.vault.get_position(&pid).unwrap().floor, 2 * UNIT); // unchanged
+}
+
+#[test]
+fn margin_wrong_borrower_rejected() {
+    let f = setup(0);
+    let (root, pid, lock) = open_loan(&f);
+    let other = Address::generate(&f.env); // proof bound to someone else
+    let jm = journal(&f.env, &root, 5 * UNIT, &pid, &lock, &other);
+    assert_eq!(
+        f.vault.try_margin(&digest_seal(&f.env, &jm), &jm, &f.borrower),
+        Err(Ok(Error::WrongBorrower))
+    );
+}
+
+#[test]
+fn margin_lock_mismatch_rejected() {
+    let f = setup(0);
+    let (root, pid, _lock) = open_loan(&f);
+    // same position id but a DIFFERENT locked note (lock handle) -> rejected
+    let jm = journal(&f.env, &root, 5 * UNIT, &pid, &b32(&f.env, 0x09), &f.borrower);
+    assert_eq!(
+        f.vault.try_margin(&digest_seal(&f.env, &jm), &jm, &f.borrower),
+        Err(Ok(Error::LockMismatch))
+    );
+}
+
+#[test]
+fn margin_unknown_root_rejected() {
+    let f = setup(0);
+    let (_root, pid, lock) = open_loan(&f);
+    let bad_root = b32(&f.env, 0xCD); // never relayed
+    let jm = journal(&f.env, &bad_root, 5 * UNIT, &pid, &lock, &f.borrower);
+    assert_eq!(
+        f.vault.try_margin(&digest_seal(&f.env, &jm), &jm, &f.borrower),
+        Err(Ok(Error::UnknownRoot))
+    );
+}
+
+#[test]
+fn margin_on_closed_position_rejected() {
+    let f = setup(0);
+    let (root, pid, lock) = open_loan(&f);
+    f.vault.repay(&pid);
+    let jm = journal(&f.env, &root, 5 * UNIT, &pid, &lock, &f.borrower);
+    assert_eq!(
+        f.vault.try_margin(&digest_seal(&f.env, &jm), &jm, &f.borrower),
+        Err(Ok(Error::AlreadyClosed))
+    );
+}
+
+#[test]
+fn margin_tampered_journal_reverts() {
+    let f = setup(0);
+    let (root, pid, lock) = open_loan(&f);
+    let jm = journal(&f.env, &root, 5 * UNIT, &pid, &lock, &f.borrower);
+    let seal = digest_seal(&f.env, &jm); // binds the 5-unit journal
+    let jt = journal(&f.env, &root, 50 * UNIT, &pid, &lock, &f.borrower); // tamper threshold
+    assert!(f.vault.try_margin(&seal, &jt, &f.borrower).is_err());
+    assert_eq!(f.vault.get_position(&pid).unwrap().floor, 2 * UNIT); // unchanged
+}
+
 #[test]
 fn double_init_rejected() {
     let f = setup(0);
