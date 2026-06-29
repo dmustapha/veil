@@ -15,7 +15,7 @@ Borrow USDC on Stellar against collateral you keep on Ethereum, proving you are 
 
 ## 1.4 Features (all SHIPPED — see VERIFY-REPORT.md milestone)
 - Sepolia escrow: lock + hashlock + 3 exits (repay-reveal, timeout→lender, price stub).
-- RISC Zero privacy guest: amount + address private witnesses; commits only `{state_root, block, escrow, threshold, hashlock, nullifier}`.
+- RISC Zero privacy guest: Ethereum amount + address private witnesses; commits only `{state_root, block, escrow, threshold, hashlock, nullifier, recipient}` (recipient = keccak256 of the borrower's Stellar account, binding the loan to one redeemer).
 - Soroban vault: atomic verify→disburse of real Circle USDC; nullifier replay-protection; Reflector loan sizing; repay; timeout liquidation; freshness + staleness guards.
 - Real Groth16 verifier on Soroban (BN254, P25/P26 host functions).
 - Relayers: checkpoint poster (disclosed trust) + secret-reveal.
@@ -24,7 +24,7 @@ Borrow USDC on Stellar against collateral you keep on Ethereum, proving you are 
 ## 1.5 Feature observables (for stress_test / verify)
 - `/api/state` returns live vault config + loan + Reflector price + escrow lock; amount NEVER present (privacy invariant). Sentinel-fail: any field exposing the real collateral amount, or all-zero/null loan when a loan exists.
 - `/api/cheat` returns the real `Error(Crypto, InvalidInput)` trap from a live tampered-proof simulation. Sentinel-fail: returns success / no error / fabricated error.
-- On-chain: tampered proof → `Error(Crypto, InvalidInput)`; replay → `Error(Contract, #7 NullifierUsed)`; valid proof → 1.97 USDC disbursed (tx 026d4af6…).
+- On-chain: tampered proof → `Error(Crypto, InvalidInput)`; replay → `Error(Contract, #7 NullifierUsed)`; stolen proof redeemed by another account → `Error(Contract, #17 WrongRecipient)`; valid proof → 1.97 USDC disbursed (tx dc5c1719…).
 - UI: the collateral amount renders only as `▓▓▓ hidden` + `≥ 0.005 ETH (threshold)` everywhere.
 
 ## 1.6 Demo script (2-3 min, from SCOPE §10)
@@ -34,4 +34,4 @@ Borrow USDC on Stellar against collateral you keep on Ethereum, proving you are 
 Not "trustless" (checkpoint + oracle + timeout trusted). Not "we removed the bridge". Not audited/production. Privacy shipped = Stellar-side confidentiality; full unlinkability (hiding the public hashlock correlation) is future work.
 
 ## Live deployments
-See `DEPLOYMENTS.md` / `WIRE-REPORT.md`. Escrow `0xb833ffEc3C1a3A0aB71a9c014fD174bA7F1eBd6F` (Sepolia), vault `CBICAWGA2HGZQIFQOY27DYMXXGCA6OMNAE5G77Z2T7N7DOMTLYWVGILV`, verifier `CDZRHQMXGWXDTZOPNPHLRJFTAPANBZE3GJNOKLM7FB7AG3EZFP5E5C2L` (Soroban testnet).
+See `DEPLOYMENTS.md` / `WIRE-REPORT.md`. Escrow `0xb833ffEc3C1a3A0aB71a9c014fD174bA7F1eBd6F` (Sepolia), vault `CDPYUWKD5OTYVWK6C3FQC2OEB3XK4DRAI7WJ5C3XQW6TY3UV2JQWFX2D`, verifier `CDZRHQMXGWXDTZOPNPHLRJFTAPANBZE3GJNOKLM7FB7AG3EZFP5E5C2L` (Soroban testnet).

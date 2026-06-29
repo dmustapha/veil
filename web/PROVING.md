@@ -47,10 +47,11 @@ downloaded `proof.json`. The backend never fabricates a seal.**
 `GET /api/prove/status` calls `gh run view <id>`; on `completed`+`success` it
 `gh run download <id> -n veil-proof`, reads `proof.json`, and returns `{ seal, journal }`.
 
-The guest is never touched, so the image id stays
-`0xc1fb4c3a0ef6736f4abff926f44b37ff173724b5ff6e0deeea2236ca7577b245` and the deployed verifier
+Per-borrow, the guest binary is never rebuilt — only its fixture inputs change — so the image id
+stays `0x494bfee75ad39a6f61e13f496af1ca2b798cca229ef94c5a094723c9901207ad` and the deployed verifier
 keeps accepting the seal. The host is unchanged too - the workflow only swaps the fixture files
-it already reads.
+it already reads. (The guest binary itself last changed when the borrower-recipient binding was
+added, which is what set this image id.)
 
 ## What must be true for a real user's borrow to complete
 
@@ -96,7 +97,7 @@ proving it on public CI leaks nothing new. For a real user, route proving to a *
 
 - **Bonsai** (the prover operator sees the witness — disclosable — but the public does not), or
 - a **self-hosted runner / private repo** that runs the identical, unchanged guest (so the image id
-  stays `0xc1fb4c3a…` and the deployed Soroban verifier keeps accepting the seal).
+  stays `0x494bfee7…` and the deployed Soroban verifier keeps accepting the seal).
 
 `dispatchProof` already accepts a `GITHUB_REPO` override, so pointing real-user proving at a private
 repo is a one-env change with no code or guest change. The bearer-redeemable-proof hole (a stolen

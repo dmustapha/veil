@@ -29,8 +29,8 @@ export const cfg = {
   // Stellar (Soroban testnet)
   network: "testnet",
   stellarSource: "veil-spike",
-  // CURRENT hardened vault (post-debug). Prior CBK7UNIO/CAV46LV5 instances are superseded.
-  vault: "CBICAWGA2HGZQIFQOY27DYMXXGCA6OMNAE5G77Z2T7N7DOMTLYWVGILV",
+  // CURRENT vault (borrower-bound 172-byte journal). Prior CBK7UNIO/CAV46LV5/CBICAWGA superseded.
+  vault: "CDPYUWKD5OTYVWK6C3FQC2OEB3XK4DRAI7WJ5C3XQW6TY3UV2JQWFX2D",
 };
 
 export function cast(args) {
