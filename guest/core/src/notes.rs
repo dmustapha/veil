@@ -113,6 +113,82 @@ pub fn encode_borrow_journal(
     out
 }
 
+/// Lock joinsplit journal: `R(32) ‖ nullifier_in(32) ‖ commitment_out(32) ‖ lockId(32)`.
+pub const LOCK_JOURNAL_LEN: usize = 128;
+
+/// Canonical 128-byte lock journal (the public output of the lock joinsplit proof).
+pub fn encode_lock_journal(
+    root: &[u8; 32],
+    nullifier_in: &[u8; 32],
+    commitment_out: &[u8; 32],
+    lock_id: &[u8; 32],
+) -> [u8; LOCK_JOURNAL_LEN] {
+    let mut out = [0u8; LOCK_JOURNAL_LEN];
+    out[0..32].copy_from_slice(root);
+    out[32..64].copy_from_slice(nullifier_in);
+    out[64..96].copy_from_slice(commitment_out);
+    out[96..128].copy_from_slice(lock_id);
+    out
+}
+
+/// Lock joinsplit witness: spend one AVAILABLE note and mint one LOCKED note of the SAME hidden
+/// amount. Public fields are re-committed to the journal; the rest stay secret.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct LockInput {
+    // --- public (re-committed) ---
+    pub root: [u8; 32],
+    pub nullifier_in: [u8; 32],
+    pub commitment_out: [u8; 32],
+    pub lock_id: [u8; 32],
+    // --- private witnesses ---
+    pub amount: u128,
+    pub blinding_in: [u8; 32],
+    pub spend_pk: [u8; 32],
+    pub nk: [u8; 32],
+    pub leaf_index: u64,
+    pub siblings: Vec<[u8; 32]>,
+    pub blinding_out: [u8; 32],
+}
+
+/// The complete lock-joinsplit logic as a pure function: prove ownership of an AVAILABLE note in
+/// `root`, publish its nullifier, and mint a LOCKED note of the SAME amount bound to `lock_id`.
+/// Value is conserved structurally — the single private `amount` feeds both commitments, so the
+/// proof cannot mint a LOCKED note worth more (or less) than the spent AVAILABLE note. Panics
+/// (→ proof fails) on any violation. `amount` never appears in the output.
+///
+/// This is a 1-input/1-output joinsplit: it locks the ENTIRE AVAILABLE note (no change output).
+/// Partial locking would need a second output note; out of scope for the MVP.
+pub fn verify_lock(input: &LockInput) -> [u8; LOCK_JOURNAL_LEN] {
+    // 1. Recompute the AVAILABLE input note (aux = 0).
+    let c_in = note_commitment(
+        DOMAIN_AVAILABLE,
+        input.amount,
+        &input.blinding_in,
+        &input.spend_pk,
+        &[0u8; 32],
+    );
+
+    // 2. The input note is a member of the committed root.
+    let computed_root = merkle_root_from_path(&c_in, input.leaf_index, &input.siblings);
+    assert!(computed_root == input.root, "input note not in pool");
+
+    // 3. The published nullifier is the correct key-derived nullifier (proves nk ownership).
+    let nf = nullifier(&input.nk, &c_in, input.leaf_index);
+    assert!(nf == input.nullifier_in, "bad nullifier");
+
+    // 4. The LOCKED output note carries the SAME amount (value conserved) and binds `lock_id`.
+    let c_out = note_commitment(
+        DOMAIN_LOCKED,
+        input.amount,
+        &input.blinding_out,
+        &input.spend_pk,
+        &input.lock_id,
+    );
+    assert!(c_out == input.commitment_out, "bad output commitment");
+
+    encode_lock_journal(&input.root, &nf, &c_out, &input.lock_id)
+}
+
 /// Borrow proof witness. Public fields are re-committed to the journal; the rest stay secret
 /// (notably `amount` — the value the whole proof exists to hide).
 #[derive(Clone, Serialize, Deserialize)]
@@ -334,6 +410,99 @@ mod tests {
             borrower: fill(0x05),
         };
         verify_borrow(&input);
+    }
+
+    // ---- lock joinsplit ----
+
+    fn build_lock_input(amount: u128) -> LockInput {
+        let blinding_in = fill(0x0A);
+        let spend_pk = fill(0x0B);
+        let nk = fill(0x0C);
+        let lock_id = fill(0x0D);
+        let blinding_out = fill(0x0E);
+
+        // AVAILABLE note at leaf 0 of a depth-2 empty tree.
+        let c_in = note_commitment(DOMAIN_AVAILABLE, amount, &blinding_in, &spend_pk, &[0u8; 32]);
+        let siblings = vec![Z0, z1()];
+        let root = merkle_root_from_path(&c_in, 0, &siblings);
+        let nf = nullifier(&nk, &c_in, 0);
+        let c_out = note_commitment(DOMAIN_LOCKED, amount, &blinding_out, &spend_pk, &lock_id);
+
+        LockInput {
+            root,
+            nullifier_in: nf,
+            commitment_out: c_out,
+            lock_id,
+            amount,
+            blinding_in,
+            spend_pk,
+            nk,
+            leaf_index: 0,
+            siblings,
+            blinding_out,
+        }
+    }
+
+    #[test]
+    fn verify_lock_happy_path() {
+        let amount = 3_000_000_000_000_000_000u128;
+        let input = build_lock_input(amount);
+        let journal = verify_lock(&input);
+        let expected = encode_lock_journal(
+            &input.root,
+            &input.nullifier_in,
+            &input.commitment_out,
+            &input.lock_id,
+        );
+        assert_eq!(journal, expected);
+        // amount stays private.
+        assert!(!journal.windows(16).any(|w| w == amount.to_be_bytes()), "amount leaked");
+    }
+
+    #[test]
+    #[should_panic(expected = "input note not in pool")]
+    fn verify_lock_rejects_wrong_membership() {
+        let mut input = build_lock_input(1_000);
+        input.siblings[0] = fill(0xFF); // break the path
+        verify_lock(&input);
+    }
+
+    #[test]
+    #[should_panic(expected = "bad nullifier")]
+    fn verify_lock_rejects_wrong_nk() {
+        let mut input = build_lock_input(1_000);
+        input.nk = fill(0x99); // nullifier no longer matches the published one
+        verify_lock(&input);
+    }
+
+    #[test]
+    #[should_panic(expected = "bad output commitment")]
+    fn verify_lock_rejects_value_inflation() {
+        // Claim a LOCKED output worth MORE than the spent note: recompute commitment_out for a
+        // bigger amount but keep the real (smaller) spent amount. The bound output won't match.
+        let mut input = build_lock_input(1_000);
+        input.commitment_out = note_commitment(
+            DOMAIN_LOCKED,
+            9_999_999, // inflated
+            &input.blinding_out,
+            &input.spend_pk,
+            &input.lock_id,
+        );
+        verify_lock(&input);
+    }
+
+    #[test]
+    fn lock_journal_layout_is_fixed() {
+        let r = fill(0x1A);
+        let nf = fill(0x2B);
+        let co = fill(0x3C);
+        let lid = fill(0x4D);
+        let j = encode_lock_journal(&r, &nf, &co, &lid);
+        assert_eq!(j.len(), LOCK_JOURNAL_LEN);
+        assert_eq!(&j[0..32], &r);
+        assert_eq!(&j[32..64], &nf);
+        assert_eq!(&j[64..96], &co);
+        assert_eq!(&j[96..128], &lid);
     }
 
     #[test]
