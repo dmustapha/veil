@@ -61,6 +61,8 @@ pub enum Error {
     InsufficientLiquidity = 13,
     ZeroAmount = 14,
     InsufficientShares = 15,
+    LockMismatch = 16,
+    FloorNotRaised = 17,
 }
 
 // ---- Reflector (SEP-40) minimal interface ----
@@ -338,6 +340,60 @@ impl VeilVault {
         Self::bump(&env, &pk);
         Self::bump(&env, &DataKey::LockUsed(j.lock_handle));
         Ok(principal)
+    }
+
+    /// Private margin call. Under price stress the borrower re-proves that the SAME locked note
+    /// clears a HIGHER floor `T'` (a borrow-shaped receipt with a larger threshold) and raises
+    /// `Position.floor` to `T'` — defending the position by revealing a tighter lower bound, never
+    /// the exact amount. Soroban-only: no Ethereum tx, no new disbursement, no re-lock. The raised
+    /// floor strengthens the liquidation health predicate (build item 8). Returns the new floor.
+    pub fn margin(
+        env: Env,
+        seal: Bytes,
+        journal_bytes: Bytes,
+        borrower: Address,
+    ) -> Result<u128, Error> {
+        borrower.require_auth();
+        let cfg = Self::cfg(&env)?;
+
+        // 1. Verify the RISC Zero proof (same guest/image_id as borrow; T is just larger).
+        let digest = env.crypto().sha256(&journal_bytes);
+        RiscZeroVerifierClient::new(&env, &cfg.verifier)
+            .verify(&seal, &cfg.image_id, &digest.into());
+        let j: Journal = journal::decode(&env, &journal_bytes);
+
+        // 2. Membership root must be a known (relayed) Ethereum pool root.
+        if !env.storage().persistent().has(&DataKey::Root(j.root.clone())) {
+            return Err(Error::UnknownRoot);
+        }
+        // 3. Anti-replay: the proof is bound to ONE Stellar account.
+        let strkey = borrower.to_string().to_bytes();
+        if j.borrower != env.crypto().keccak256(&strkey).to_bytes() {
+            return Err(Error::WrongBorrower);
+        }
+
+        // 4. The position must exist, be active, and belong to the caller.
+        let pk = DataKey::Position(j.position_id.clone());
+        let mut pos: Position = env.storage().persistent().get(&pk).ok_or(Error::NoPosition)?;
+        if pos.status != STATUS_ACTIVE {
+            return Err(Error::AlreadyClosed);
+        }
+        if pos.borrower != borrower {
+            return Err(Error::WrongBorrower);
+        }
+        // 5. Must re-prove the SAME locked note (margin can't swap collateral).
+        if j.lock_handle != pos.lock_handle {
+            return Err(Error::LockMismatch);
+        }
+        // 6. A margin call only ever TIGHTENS the floor (strictly raises the proven lower bound).
+        if j.threshold <= pos.floor {
+            return Err(Error::FloorNotRaised);
+        }
+
+        pos.floor = j.threshold;
+        env.storage().persistent().set(&pk, &pos);
+        Self::bump(&env, &pk);
+        Ok(j.threshold)
     }
 
     /// Repay principal + accrued interest; mark the position REPAID. Returns the amount repaid.
