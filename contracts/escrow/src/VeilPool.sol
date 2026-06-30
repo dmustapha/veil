@@ -9,11 +9,13 @@ interface IRiscZeroVerifier {
     function verify(bytes calldata seal, bytes32 imageId, bytes32 journalDigest) external view;
 }
 
-/// @notice Minimal ERC-20 surface VeilPool needs to escrow wstETH collateral.
-interface IERC20 {
+/// @notice Minimal wstETH surface VeilPool needs: the ERC-20 methods to escrow collateral plus
+///         `stEthPerToken` (a real Lido method) to report the productive (appreciating) value.
+interface IWstETH {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function transfer(address to, uint256 amount) external returns (bool);
     function balanceOf(address account) external view returns (uint256);
+    function stEthPerToken() external view returns (uint256);
 }
 
 /// @title VeilPool
@@ -33,11 +35,11 @@ interface IERC20 {
 ///      Nullifier (key-derived, Penumbra-style; unlinkable without the nullifier key):
 ///        nf = SHA256("VEIL_NF" ‖ nk ‖ C ‖ leafIndex)
 ///
-///      Build-order scope (item 1): the shielded tree primitive — commitment insertion,
-///      root history, and the nullifier set. Economic binding (wstETH custody on deposit;
-///      amount conservation enforced by the joinsplit proof) lands with the lock joinsplit
-///      (item 4) and productive collateral (item 9). `deposit` here inserts the commitment
-///      and surfaces the encrypted note; it does not yet move collateral.
+///      Economic binding is complete: `deposit` escrows real wstETH equal to each note's
+///      committed amount (item 9), and the lock/unlock/seize joinsplits conserve value across a
+///      ZK proof (items 4/7/8), so the pool's wstETH balance always covers the live note amounts.
+///      Collateral is productive: wstETH appreciates (stEthPerToken), so the same units back the
+///      same loans at a rising value (`totalCollateralStEth`).
 contract VeilPool is MerkleTreeWithHistory {
     /// @notice Spent nullifiers. A nullifier can be published at most once.
     mapping(bytes32 => bool) public nullifierSpent;
@@ -92,7 +94,7 @@ contract VeilPool is MerkleTreeWithHistory {
 
     /// @notice The productive collateral the pool escrows. Notes are denominated in wstETH
     ///         base-units (1e18 scale); deposit binds each note's committed amount to real wstETH.
-    IERC20 public immutable wstETH;
+    IWstETH public immutable wstETH;
 
     /// @notice Total wstETH base-units escrowed across all deposits (the only public aggregate).
     uint256 public totalDeposited;
@@ -123,7 +125,7 @@ contract VeilPool is MerkleTreeWithHistory {
         bytes32 unlockImageId_,
         bytes32 seizeImageId_,
         address relayer_,
-        IERC20 wstETH_
+        IWstETH wstETH_
     ) MerkleTreeWithHistory(levels_) {
         verifier = verifier_;
         lockImageId = lockImageId_;
@@ -326,6 +328,15 @@ contract VeilPool is MerkleTreeWithHistory {
     /// @notice True if `nf` has already been published.
     function isSpent(bytes32 nf) external view returns (bool) {
         return nullifierSpent[nf];
+    }
+
+    /// @notice The stETH-equivalent value of all escrowed collateral: `totalDeposited ×
+    ///         stEthPerToken / 1e18`. Notes are fixed in wstETH base-units; as wstETH appreciates
+    ///         (stEthPerToken ↑) this value grows, so the same units back the same loans at a
+    ///         rising value — a borrower's proven floor becomes a conservative lower bound and
+    ///         health only improves. The rate never enters any proof.
+    function totalCollateralStEth() external view returns (uint256) {
+        return (totalDeposited * wstETH.stEthPerToken()) / 1e18;
     }
 
     /// @dev Consume a nullifier, reverting on reuse. Called by spend paths (joinsplit,
