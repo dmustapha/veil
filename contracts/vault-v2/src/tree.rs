@@ -10,11 +10,15 @@
 //! `guest/core/src/notes.rs` so the Soroban tree and the guest fold can never silently diverge.
 use soroban_sdk::{contracttype, Bytes, BytesN, Env, Vec};
 
-/// Repaid-tree depth (≤ 65_536 repaid positions — ample for the build).
+/// Tree depth (≤ 65_536 leaves — ample for the build). Shared by R_sor and R_liq.
 pub const REPAID_DEPTH: u32 = 16;
 /// Domain tag for a repaid leaf; matches `veil_core::notes::REPAID_TAG`.
 const REPAID_TAG: &[u8] = b"VEIL_REPAID";
+/// Domain tag for a liquidated leaf; matches `veil_core::notes::LIQUIDATED_TAG`.
+const LIQUIDATED_TAG: &[u8] = b"VEIL_LIQUIDATED";
 
+/// A generic incremental SHA-256 Merkle tree. Used for BOTH the repaid set (R_sor, item 7) and the
+/// liquidated set (R_liq, item 8) — the only difference is the leaf domain tag.
 #[contracttype]
 #[derive(Clone)]
 pub struct RepaidTree {
@@ -56,6 +60,14 @@ pub fn empty(env: &Env) -> RepaidTree {
 pub fn repaid_leaf(env: &Env, lock_handle: &BytesN<32>) -> BytesN<32> {
     let mut b = Bytes::new(env);
     b.append(&Bytes::from_slice(env, REPAID_TAG));
+    b.append(&Bytes::from_array(env, &lock_handle.to_array()));
+    env.crypto().sha256(&b).into()
+}
+
+/// `liquidatedLeaf = sha256(LIQUIDATED_TAG ‖ lock_handle)` — matches `veil_core::notes::liquidated_leaf`.
+pub fn liquidated_leaf(env: &Env, lock_handle: &BytesN<32>) -> BytesN<32> {
+    let mut b = Bytes::new(env);
+    b.append(&Bytes::from_slice(env, LIQUIDATED_TAG));
     b.append(&Bytes::from_array(env, &lock_handle.to_array()));
     env.crypto().sha256(&b).into()
 }
