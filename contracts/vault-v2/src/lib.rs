@@ -40,8 +40,6 @@ const LEDGERS_PER_YEAR: i128 = 365 * DAY_LEDGERS as i128;
 /// Position lifecycle.
 const STATUS_ACTIVE: u32 = 0;
 const STATUS_REPAID: u32 = 1;
-/// Used by the liquidation path (build item 8).
-#[allow(dead_code)]
 const STATUS_LIQUIDATED: u32 = 2;
 
 #[contracterror]
@@ -65,6 +63,7 @@ pub enum Error {
     InsufficientShares = 15,
     LockMismatch = 16,
     FloorNotRaised = 17,
+    NotLiquidatable = 18,
 }
 
 // ---- Reflector (SEP-40) minimal interface ----
@@ -98,6 +97,9 @@ pub struct Config {
     pub reflector: Address,
     pub reflector_asset: Asset,
     pub ltv_bps: u32,
+    /// Liquidation threshold (bps). A position is liquidatable once `floor·price·liq_bps < debt`.
+    /// Set above `ltv_bps` so a freshly-opened loan has headroom before it can be liquidated.
+    pub liq_bps: u32,
     pub min_threshold: u128,
     pub term_ledgers: u32,
     /// Annual borrow interest rate in basis points (e.g. 500 = 5%/yr).
@@ -138,6 +140,7 @@ enum DataKey {
     LockUsed(BytesN<32>),   // lockHandle -> true (PERMANENT; never deleted)
     Shares(Address),        // LP share balance
     RepaidTree,             // Soroban repaid-position tree (R_sor)
+    LiquidatedTree,         // Soroban liquidated-position tree (R_liq)
 }
 
 #[contract]
@@ -156,6 +159,7 @@ impl VeilVault {
         reflector: Address,
         reflector_asset: Asset,
         ltv_bps: u32,
+        liq_bps: u32,
         min_threshold: u128,
         term_ledgers: u32,
         rate_bps: u32,
@@ -165,7 +169,7 @@ impl VeilVault {
         }
         let cfg = Config {
             admin, verifier, image_id, usdc, reflector, reflector_asset,
-            ltv_bps, min_threshold, term_ledgers, rate_bps,
+            ltv_bps, liq_bps, min_threshold, term_ledgers, rate_bps,
         };
         env.storage().instance().set(&DataKey::Config, &cfg);
         let pool = Pool {
@@ -178,6 +182,8 @@ impl VeilVault {
         env.storage().instance().set(&DataKey::Pool, &pool);
         // Empty repaid-tree (R_sor); a leaf is appended on each repay.
         env.storage().instance().set(&DataKey::RepaidTree, &tree::empty(&env));
+        // Empty liquidated-tree (R_liq); a leaf is appended on each liquidation.
+        env.storage().instance().set(&DataKey::LiquidatedTree, &tree::empty(&env));
         Ok(())
     }
 
@@ -436,6 +442,69 @@ impl VeilVault {
         Ok(debt)
     }
 
+    /// Liquidate a defaulted position. Permissionless: any `liquidator` may call it, but they must
+    /// repay the debt to the pool (so the LPs are made whole) — in return they recover the locked
+    /// collateral on Ethereum via `VeilPool.seize` (worth ≥ the proven floor, so they profit at the
+    /// liquidation threshold). A position is liquidatable iff it is under-collateralized at the
+    /// proven floor (`floor·price·liq_bps < debt`) OR its loan term has lapsed. The hidden surplus
+    /// (collateral above the floor) is returned to the borrower as a change note by the seize proof.
+    /// Marks the position LIQUIDATED and appends `liquidated_leaf(lockHandle)` to `R_liq` — the
+    /// default-proof the seize guest folds. Returns the debt absorbed.
+    pub fn liquidate(env: Env, position_id: BytesN<32>, liquidator: Address) -> Result<i128, Error> {
+        let cfg = Self::cfg(&env)?;
+        let pk = DataKey::Position(position_id.clone());
+        let mut pos: Position = env.storage().persistent().get(&pk).ok_or(Error::NoPosition)?;
+        if pos.status != STATUS_ACTIVE {
+            return Err(Error::AlreadyClosed);
+        }
+        liquidator.require_auth();
+
+        let mut pool = Self::pool(&env)?;
+        Self::accrue(&env, &mut pool, cfg.rate_bps);
+        let debt = pos.principal_scaled.checked_mul(pool.borrow_index).expect("ovf") / INDEX_SCALE;
+
+        if !Self::is_liq(&env, &cfg, &pos, debt) {
+            return Err(Error::NotLiquidatable);
+        }
+
+        // The liquidator repays the debt; the pool's idle liquidity is restored (LPs whole).
+        let usdc = token::TokenClient::new(&env, &cfg.usdc);
+        usdc.transfer(&liquidator, &env.current_contract_address(), &debt);
+
+        pool.total_idle += debt;
+        pool.total_borrowed_scaled -= pos.principal_scaled;
+        pos.status = STATUS_LIQUIDATED;
+        env.storage().persistent().set(&pk, &pos);
+        Self::save_pool(&env, &pool);
+        Self::bump(&env, &pk);
+
+        // Append liquidated_leaf(lockHandle) → new R_liq (Relayer C relays it; the seize guest
+        // proves membership against it — collateral can be seized ONLY after this default-proof).
+        let mut lt: RepaidTree = env.storage().instance().get(&DataKey::LiquidatedTree).unwrap();
+        let leaf = tree::liquidated_leaf(&env, &pos.lock_handle);
+        tree::insert(&env, &mut lt, leaf);
+        env.storage().instance().set(&DataKey::LiquidatedTree, &lt);
+        Ok(debt)
+    }
+
+    /// Liquidation predicate: under-collateralized at the proven floor OR past the loan term.
+    /// Time-based (past-due) liquidation needs no oracle; health needs a fresh price (a stale/absent
+    /// price cannot push a position into liquidation — only into a documented "can't assess" state).
+    fn is_liq(env: &Env, cfg: &Config, pos: &Position, debt: i128) -> bool {
+        if env.ledger().sequence() > pos.due_ledger {
+            return true;
+        }
+        let r = ReflectorClient::new(env, &cfg.reflector);
+        if let Some(px) = r.lastprice(&cfg.reflector_asset) {
+            if env.ledger().timestamp().saturating_sub(px.timestamp) <= MAX_PRICE_AGE_SECS {
+                // collateral value at the proven floor, scaled by the liquidation threshold.
+                let liq_value = journal::size_loan(pos.floor, px.price, r.decimals(), cfg.liq_bps);
+                return liq_value < debt;
+            }
+        }
+        false
+    }
+
     // ---- views ----
     pub fn get_position(env: Env, position_id: BytesN<32>) -> Option<Position> {
         env.storage().persistent().get(&DataKey::Position(position_id))
@@ -473,6 +542,37 @@ impl VeilVault {
     pub fn repaid_count(env: Env) -> u32 {
         let rt: RepaidTree = env.storage().instance().get(&DataKey::RepaidTree).unwrap();
         rt.next_index
+    }
+    /// Current Soroban liquidated-root `R_liq` (Relayer C posts this to Ethereum for seize proofs).
+    pub fn liquidated_root(env: Env) -> BytesN<32> {
+        let lt: RepaidTree = env.storage().instance().get(&DataKey::LiquidatedTree).unwrap();
+        lt.root
+    }
+    /// Number of liquidated positions appended to the liquidated-tree.
+    pub fn liquidated_count(env: Env) -> u32 {
+        let lt: RepaidTree = env.storage().instance().get(&DataKey::LiquidatedTree).unwrap();
+        lt.next_index
+    }
+    /// Read-only liquidation check (returns false for missing/closed positions or config errors).
+    pub fn is_liquidatable(env: Env, position_id: BytesN<32>) -> bool {
+        let cfg = match Self::cfg(&env) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        let pos: Position = match env.storage().persistent().get(&DataKey::Position(position_id)) {
+            Some(p) => p,
+            None => return false,
+        };
+        if pos.status != STATUS_ACTIVE {
+            return false;
+        }
+        let mut pool = match Self::pool(&env) {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
+        Self::accrue(&env, &mut pool, cfg.rate_bps);
+        let debt = pos.principal_scaled.checked_mul(pool.borrow_index).expect("ovf") / INDEX_SCALE;
+        Self::is_liq(&env, &cfg, &pos, debt)
     }
     pub fn is_lock_used(env: Env, lock_handle: BytesN<32>) -> bool {
         env.storage().persistent().has(&DataKey::LockUsed(lock_handle))

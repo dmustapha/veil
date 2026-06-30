@@ -29,12 +29,22 @@ impl MockVerifier {
     }
 }
 
+/// Settable-price oracle mock. Defaults to $1500 (14 decimals); `set_price` lets liquidation tests
+/// crash the price. Timestamp tracks the current ledger so the price is never stale.
 #[contract]
 struct MockReflector;
 #[contractimpl]
 impl MockReflector {
-    pub fn lastprice(_env: Env, _asset: Asset) -> Option<PriceData> {
-        Some(PriceData { price: 150_000_000_000_000_000, timestamp: 0 }) // 1500 * 1e14, 14 decimals
+    pub fn set_price(env: Env, price: i128) {
+        env.storage().instance().set(&symbol_short!("PX"), &price);
+    }
+    pub fn lastprice(env: Env, _asset: Asset) -> Option<PriceData> {
+        let price = env
+            .storage()
+            .instance()
+            .get(&symbol_short!("PX"))
+            .unwrap_or(150_000_000_000_000_000); // 1500 * 1e14
+        Some(PriceData { price, timestamp: env.ledger().timestamp() })
     }
     pub fn decimals(_env: Env) -> u32 {
         14
@@ -46,9 +56,11 @@ struct Fixture<'a> {
     vault: VeilVaultClient<'a>,
     vault_id: Address,
     usdc: token::TokenClient<'a>,
+    reflector: Address,
     admin: Address,
     lp: Address,
     borrower: Address,
+    liquidator: Address,
 }
 
 const UNIT: u128 = 1_000_000_000_000_000_000; // 1.0 wstETH-unit (1e18, same scale as wei)
@@ -61,6 +73,7 @@ fn setup(rate_bps: u32) -> Fixture<'static> {
     let admin = Address::generate(&env);
     let lp = Address::generate(&env);
     let borrower = Address::generate(&env);
+    let liquidator = Address::generate(&env);
     let issuer = Address::generate(&env);
 
     let vault_id = env.register(VeilVault, ());
@@ -74,6 +87,7 @@ fn setup(rate_bps: u32) -> Fixture<'static> {
     // Fund the LP and the borrower (borrower needs extra to pay interest on repay).
     usdc_admin.mint(&lp, &1_000_000_0000000i128); // 1,000,000 USDC
     usdc_admin.mint(&borrower, &10_000_0000000i128); // 10,000 USDC buffer for interest
+    usdc_admin.mint(&liquidator, &10_000_0000000i128); // liquidator repays debt on liquidation
 
     let image_id = BytesN::from_array(&env, &[0x11u8; 32]);
 
@@ -85,12 +99,13 @@ fn setup(rate_bps: u32) -> Fixture<'static> {
         &reflector,
         &Asset::Other(symbol_short!("ETH")),
         &5_000u32,             // 50% LTV
+        &8_000u32,             // 80% liquidation threshold
         &(UNIT / 10),          // min threshold 0.1 unit
         &(17_280u32 * 7),      // 7-day term
         &rate_bps,
     );
 
-    Fixture { env, vault, vault_id, usdc, admin, lp, borrower }
+    Fixture { env, vault, vault_id, usdc, reflector, admin, lp, borrower, liquidator }
 }
 
 fn recipient_of(env: &Env, who: &Address) -> BytesN<32> {
@@ -462,7 +477,119 @@ fn double_init_rejected() {
     let f = setup(0);
     let res = f.vault.try_init(
         &f.admin, &f.admin, &b32(&f.env, 1), &f.vault_id, &f.admin,
-        &Asset::Other(symbol_short!("ETH")), &5_000u32, &1u128, &1u32, &0u32,
+        &Asset::Other(symbol_short!("ETH")), &5_000u32, &8_000u32, &1u128, &1u32, &0u32,
     );
     assert_eq!(res, Err(Ok(Error::AlreadyInitialized)));
+}
+
+// ---- item 8: liquidation predicate + absorption + liquidated-tree (R_liq) ----
+
+/// Crash the Reflector price to `usd` dollars (14-decimal SEP-40 scale).
+fn set_price_usd(f: &Fixture, usd: i128) {
+    let client = MockReflectorClient::new(&f.env, &f.reflector);
+    client.set_price(&(usd * 100_000_000_000_000i128)); // usd * 1e14
+}
+
+#[test]
+fn liquidated_root_starts_empty() {
+    let f = setup(0);
+    let empty16 = b32_hex(&f.env, "8fe6b1689256c0d385f42f5bbe2027a22c1996e110ba97c171d3e5948de92beb");
+    assert_eq!(f.vault.liquidated_root(), empty16);
+    assert_eq!(f.vault.liquidated_count(), 0);
+}
+
+#[test]
+fn liquidate_undercollateralized_position() {
+    let f = setup(0);
+    let (_root, pid, _lock) = open_loan(&f); // floor 2 units, $1500 -> debt $1500, liq_value $2400
+    let debt = f.vault.debt_of(&pid);
+    let idle_before = f.vault.get_pool().total_idle;
+
+    // crash price to $900: liq_value = 2 units * $900 * 80% = $1440 < $1500 debt -> liquidatable
+    set_price_usd(&f, 900);
+    assert!(f.vault.is_liquidatable(&pid));
+
+    let absorbed = f.vault.liquidate(&pid, &f.liquidator);
+    assert_eq!(absorbed, debt);
+    assert_eq!(f.vault.get_position(&pid).unwrap().status, 2); // LIQUIDATED
+    // the liquidator repaid the debt, so the pool is made whole (idle += debt).
+    assert_eq!(f.vault.get_pool().total_idle, idle_before + debt);
+    assert_eq!(f.vault.get_pool().total_borrowed_scaled, 0);
+    assert_eq!(f.vault.liquidated_count(), 1);
+}
+
+#[test]
+fn liquidate_on_term_expiry() {
+    let f = setup(0);
+    let (_root, pid, _lock) = open_loan(&f);
+    // price healthy, but the loan term lapses -> past-due liquidation (no price needed).
+    assert!(!f.vault.is_liquidatable(&pid), "healthy + in-term");
+    f.env.ledger().with_mut(|l| l.sequence_number += 17_280 * 7 + 1);
+    assert!(f.vault.is_liquidatable(&pid), "past due");
+    let debt = f.vault.debt_of(&pid);
+    let absorbed = f.vault.liquidate(&pid, &f.liquidator);
+    assert_eq!(absorbed, debt);
+    assert_eq!(f.vault.get_position(&pid).unwrap().status, 2);
+}
+
+#[test]
+fn healthy_position_not_liquidatable() {
+    let f = setup(0);
+    let (_root, pid, _lock) = open_loan(&f); // $1500 price -> liq_value $2400 > $1500 debt
+    assert!(!f.vault.is_liquidatable(&pid));
+    assert_eq!(
+        f.vault.try_liquidate(&pid, &f.liquidator),
+        Err(Ok(Error::NotLiquidatable))
+    );
+}
+
+#[test]
+fn liquidate_repaid_position_rejected() {
+    let f = setup(0);
+    let (_root, pid, _lock) = open_loan(&f);
+    f.vault.repay(&pid);
+    set_price_usd(&f, 900); // even underwater, a repaid position cannot be liquidated
+    assert_eq!(
+        f.vault.try_liquidate(&pid, &f.liquidator),
+        Err(Ok(Error::AlreadyClosed))
+    );
+}
+
+#[test]
+fn liquidate_missing_position_rejected() {
+    let f = setup(0);
+    assert_eq!(
+        f.vault.try_liquidate(&b32(&f.env, 0x55), &f.liquidator),
+        Err(Ok(Error::NoPosition))
+    );
+}
+
+#[test]
+fn liquidate_twice_rejected() {
+    let f = setup(0);
+    let (_root, pid, _lock) = open_loan(&f);
+    set_price_usd(&f, 900);
+    f.vault.liquidate(&pid, &f.liquidator);
+    assert_eq!(
+        f.vault.try_liquidate(&pid, &f.liquidator),
+        Err(Ok(Error::AlreadyClosed))
+    );
+}
+
+#[test]
+fn liquidated_root_matches_cross_impl_vector() {
+    // CROSS-IMPL VECTOR (depth 16): liquidate a position whose lock_handle is the guest's
+    // lock_handle(0x02) = 188b06b2…b244, then R_liq must equal the guest's
+    // merkle_root_from_path(liquidated_leaf(lh), 0, zero_hashes(16)).
+    let f = setup(0);
+    let root = prime(&f, 1_000_000_0000000i128);
+    let pid = b32(&f.env, 0x01);
+    let lock_h = b32_hex(&f.env, "188b06b26be1f9e52c6083507a0182e1bb2ff1be08cb0a7d0b4b5cde4935b244");
+    let j = journal(&f.env, &root, 2 * UNIT, &pid, &lock_h, &f.borrower);
+    f.vault.borrow(&digest_seal(&f.env, &j), &j, &f.borrower);
+    f.env.ledger().with_mut(|l| l.sequence_number += 17_280 * 7 + 1); // past due
+    f.vault.liquidate(&pid, &f.liquidator);
+
+    let expected = b32_hex(&f.env, "e269b6576d68cdba7d9866037a70c0f93a860daca2170904684bdedf47dc70ea");
+    assert_eq!(f.vault.liquidated_root(), expected, "R_liq drifted from the shared guest vector");
 }
