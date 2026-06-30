@@ -5,6 +5,9 @@
 /// v2 shielded-note cryptography (SHA-256 note commitments, Merkle membership, bindings).
 pub mod notes;
 
+/// Anonymity-set seeding (deterministic decoy AVAILABLE-note deposits).
+pub mod decoy;
+
 use serde::{Deserialize, Serialize};
 
 pub const JOURNAL_LEN: usize = 172;

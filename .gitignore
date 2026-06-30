@@ -23,6 +23,8 @@ guest/proof.json
 guest/proof-lock.json
 guest/proof-unlock.json
 guest/proof-seize.json
+# anonymity-set artifact: contains decoy openings (seeder secrets) — never commit
+guest/anonymity-set.json
 
 # misc
 .DS_Store
