@@ -51,17 +51,33 @@ contract VeilPool is MerkleTreeWithHistory {
     /// @notice Emitted when Relayer B posts a Soroban repaid-root.
     event SorobanRootAdded(bytes32 indexed root);
 
+    /// @notice Emitted when a LIQUIDATED LOCKED note is seized: the floor goes to the liquidator
+    ///         as one AVAILABLE note, the hidden surplus returns to the borrower as a change note.
+    event Seized(
+        bytes32 indexed nullifierIn,
+        bytes32 commitmentLiquidator,
+        bytes32 commitmentChange,
+        uint32 leafLiquidator,
+        uint32 leafChange
+    );
+
+    /// @notice Emitted when Relayer C posts a Soroban liquidated-root.
+    event LiquidatedRootAdded(bytes32 indexed root);
+
     error NullifierAlreadySpent();
     error BadLockJournalLength();
     error BadUnlockJournalLength();
+    error BadSeizeJournalLength();
     error UnknownRoot();
     error UnknownSorobanRoot();
+    error UnknownLiquidatedRoot();
     error NotRelayer();
 
     /// @notice RISC Zero verifier and the joinsplit guest image ids. Immutable; set at deploy.
     IRiscZeroVerifier public immutable verifier;
     bytes32 public immutable lockImageId;
     bytes32 public immutable unlockImageId;
+    bytes32 public immutable seizeImageId;
 
     /// @notice Disclosed-trust relayer (Relayer B) authorized to post Soroban repaid-roots. A
     ///         Wormhole committee + a ZK proof of the repay semantics replaces it in future work.
@@ -71,21 +87,30 @@ contract VeilPool is MerkleTreeWithHistory {
     ///         path proves the position was REPAID against one of these (the repay-proof anchor).
     mapping(bytes32 => bool) public knownSorobanRoots;
 
+    /// @notice Soroban liquidated-roots `R_liq` relayed from the vault. A seize proof's membership
+    ///         path proves the position was LIQUIDATED against one of these (the default-proof anchor).
+    mapping(bytes32 => bool) public knownLiquidatedRoots;
+
     /// @dev Length of the lock joinsplit journal: R(32) ‖ nullifierIn(32) ‖ commitmentOut(32) ‖ lockId(32).
     uint256 private constant LOCK_JOURNAL_LEN = 128;
     /// @dev Length of the unlock journal: R_eth(32) ‖ R_sor(32) ‖ nullifierIn(32) ‖ commitmentOut(32).
     uint256 private constant UNLOCK_JOURNAL_LEN = 128;
+    /// @dev Length of the seize journal: R_eth(32) ‖ R_liq(32) ‖ seized(16) ‖ nullifierIn(32) ‖
+    ///      commitmentLiquidator(32) ‖ commitmentChange(32).
+    uint256 private constant SEIZE_JOURNAL_LEN = 176;
 
     constructor(
         uint32 levels_,
         IRiscZeroVerifier verifier_,
         bytes32 lockImageId_,
         bytes32 unlockImageId_,
+        bytes32 seizeImageId_,
         address relayer_
     ) MerkleTreeWithHistory(levels_) {
         verifier = verifier_;
         lockImageId = lockImageId_;
         unlockImageId = unlockImageId_;
+        seizeImageId = seizeImageId_;
         relayer = relayer_;
     }
 
@@ -95,6 +120,14 @@ contract VeilPool is MerkleTreeWithHistory {
         if (msg.sender != relayer) revert NotRelayer();
         knownSorobanRoots[root] = true;
         emit SorobanRootAdded(root);
+    }
+
+    /// @notice Relayer C posts a Soroban liquidated-root so seize proofs can anchor their
+    ///         default-proof. Same disclosed-trust model as `addSorobanRoot`.
+    function addLiquidatedRoot(bytes32 root) external {
+        if (msg.sender != relayer) revert NotRelayer();
+        knownLiquidatedRoots[root] = true;
+        emit LiquidatedRootAdded(root);
     }
 
     /// @notice Insert a note commitment into the shielded tree.
@@ -192,6 +225,60 @@ contract VeilPool is MerkleTreeWithHistory {
         leafIndex = _insert(commitmentOut);
         emit Commitment(commitmentOut, leafIndex, encNote);
         emit Unlocked(nullifierIn, commitmentOut, leafIndex);
+    }
+
+    /// @notice Seize a LIQUIDATED LOCKED note — the liquidation counterpart of `unlock`, gated on a
+    ///         DEFAULT-PROOF. The seize guest proves (in ZK) that the LOCKED note is in pool root
+    ///         `R_eth` AND that the position tied to its lock was LIQUIDATED on Stellar
+    ///         (`liquidated_leaf` is a member of the Soroban liquidated-root `R_liq`), then splits
+    ///         the note's value: the liquidator receives one AVAILABLE note worth the proven floor,
+    ///         and the borrower receives a change note worth the hidden surplus. Value is conserved
+    ///         inside the proof. Because the LOCKED note's nullifier is consumed here, the SAME note
+    ///         can never also be `unlock`ed — a position is either repaid-and-unlocked or
+    ///         liquidated-and-seized, never both.
+    /// @param seal     RISC Zero seal for the seize guest.
+    /// @param journal  176-byte seize journal: `R_eth ‖ R_liq ‖ seized ‖ nullifierIn ‖
+    ///                  commitmentLiquidator ‖ commitmentChange`.
+    /// @param encLiq   Ciphertext of the liquidator's recovered note, addressed to the liquidator.
+    /// @param encChange Ciphertext of the borrower's change note, addressed to the borrower.
+    function seize(bytes calldata seal, bytes calldata journal, bytes calldata encLiq, bytes calldata encChange)
+        external
+    {
+        if (journal.length != SEIZE_JOURNAL_LEN) revert BadSeizeJournalLength();
+        // The LOCKED note must be in a recent pool root, and the default-proof must anchor to a
+        // Soroban liquidated-root relayed from the vault. Scoped so the roots free their stack slots.
+        {
+            bytes32 rEth;
+            bytes32 rLiq;
+            assembly {
+                rEth := calldataload(journal.offset)
+                rLiq := calldataload(add(journal.offset, 32))
+            }
+            if (!isKnownRoot(rEth)) revert UnknownRoot();
+            if (!knownLiquidatedRoots[rLiq]) revert UnknownLiquidatedRoot();
+        }
+
+        // Verify the seize proof; reverts unless membership + liquidation-membership + value all hold.
+        verifier.verify(seal, seizeImageId, sha256(journal));
+
+        // seized (16 bytes) sits at offset 64..80; the contract doesn't need it (the guest enforces
+        // the split), so the subsequent fields are read at their fixed byte offsets.
+        bytes32 nullifierIn;
+        bytes32 commitmentLiquidator;
+        bytes32 commitmentChange;
+        assembly {
+            nullifierIn := calldataload(add(journal.offset, 80))
+            commitmentLiquidator := calldataload(add(journal.offset, 112))
+            commitmentChange := calldataload(add(journal.offset, 144))
+        }
+
+        // Spend the LOCKED note (reverts on double-spend) and insert the two output notes.
+        _markNullifier(nullifierIn);
+        uint32 leafLiquidator = _insert(commitmentLiquidator);
+        emit Commitment(commitmentLiquidator, leafLiquidator, encLiq);
+        uint32 leafChange = _insert(commitmentChange);
+        emit Commitment(commitmentChange, leafChange, encChange);
+        emit Seized(nullifierIn, commitmentLiquidator, commitmentChange, leafLiquidator, leafChange);
     }
 
     /// @notice True if `nf` has already been published.

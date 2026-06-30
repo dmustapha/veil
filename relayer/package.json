@@ -9,6 +9,7 @@
     "secret": "node secret-relayer.mjs",
     "root": "node root-relayer.mjs",
     "soroban-root": "node soroban-root-relayer.mjs",
+    "liquidated-root": "node liquidated-root-relayer.mjs",
     "test": "node --test"
   }
 }

@@ -7,6 +7,7 @@ import {MerkleTreeWithHistory} from "../src/MerkleTreeWithHistory.sol";
 
 bytes32 constant LOCK_IMG = bytes32(uint256(0xABCD));
 bytes32 constant UNLOCK_IMG = bytes32(uint256(0xBEEF));
+bytes32 constant SEIZE_IMG = bytes32(uint256(0xCAFE));
 
 /// @dev Mock RISC Zero verifier: accepts iff the seal equals the journal digest (binds proof
 ///      to journal, so a tampered journal fails — mirrors the real cryptographic binding).
@@ -24,7 +25,7 @@ contract MockRiscZeroVerifier is IRiscZeroVerifier {
 /// @dev Exposes the internal nullifier helper so the set can be exercised directly. Test infra only.
 contract VeilPoolHarness is VeilPool {
     constructor(uint32 levels_, IRiscZeroVerifier v_)
-        VeilPool(levels_, v_, LOCK_IMG, UNLOCK_IMG, address(this))
+        VeilPool(levels_, v_, LOCK_IMG, UNLOCK_IMG, SEIZE_IMG, address(this))
     {}
 
     function exposed_markNullifier(bytes32 nf) external {
@@ -44,12 +45,19 @@ contract VeilPoolTest is Test {
     event Commitment(bytes32 indexed commitment, uint32 leafIndex, bytes encNote);
     event Locked(bytes32 indexed nullifierIn, bytes32 indexed commitmentOut, bytes32 lockId, uint32 leafIndex);
     event Unlocked(bytes32 indexed nullifierIn, bytes32 indexed commitmentOut, uint32 leafIndex);
+    event Seized(
+        bytes32 indexed nullifierIn,
+        bytes32 commitmentLiquidator,
+        bytes32 commitmentChange,
+        uint32 leafLiquidator,
+        uint32 leafChange
+    );
 
     MockRiscZeroVerifier internal verifier = new MockRiscZeroVerifier();
 
     function _deploy(uint32 levels) internal returns (VeilPool) {
         // The test contract is the disclosed-trust relayer (can post Soroban roots).
-        return new VeilPool(levels, verifier, LOCK_IMG, UNLOCK_IMG, address(this));
+        return new VeilPool(levels, verifier, LOCK_IMG, UNLOCK_IMG, SEIZE_IMG, address(this));
     }
 
     /// Build a 128-byte unlock journal and the matching mock seal (= its sha256 digest).
@@ -349,7 +357,7 @@ contract VeilPoolTest is Test {
     function test_AddSorobanRootOnlyRelayer() public {
         // Deploy with a DIFFERENT relayer so this test contract is not authorized.
         address otherRelayer = address(0xBEEF);
-        VeilPool pool = new VeilPool(16, verifier, LOCK_IMG, UNLOCK_IMG, otherRelayer);
+        VeilPool pool = new VeilPool(16, verifier, LOCK_IMG, UNLOCK_IMG, SEIZE_IMG, otherRelayer);
         vm.expectRevert(VeilPool.NotRelayer.selector);
         pool.addSorobanRoot(keccak256("r"));
     }
@@ -360,5 +368,105 @@ contract VeilPoolTest is Test {
         assertTrue(!pool.knownSorobanRoots(rSor), "unknown before");
         pool.addSorobanRoot(rSor);
         assertTrue(pool.knownSorobanRoots(rSor), "known after");
+    }
+
+    // ---- seize (item 8): spend a LIQUIDATED LOCKED note -> T to liquidator, change to borrower ----
+
+    /// 176-byte seize journal: R_eth ‖ R_liq ‖ seized(16 BE, zero-padded to 32) ‖ nfIn ‖ cLiq ‖ cChange.
+    function _seizeJournal(bytes32 rEth, bytes32 rLiq, uint128 seized, bytes32 nfIn, bytes32 cLiq, bytes32 cChange)
+        internal
+        pure
+        returns (bytes memory journal, bytes memory seal)
+    {
+        journal = abi.encodePacked(rEth, rLiq, bytes16(seized), nfIn, cLiq, cChange);
+        seal = abi.encodePacked(sha256(journal));
+    }
+
+    /// Deposit (known pool root R_eth) and post a Soroban liquidated-root R_liq. Returns both.
+    function _primeSeize(VeilPool pool) internal returns (bytes32 rEth, bytes32 rLiq) {
+        pool.deposit(keccak256("locked-collateral-note"), "");
+        rEth = pool.getLastRoot();
+        rLiq = keccak256("R_liq-after-liquidation");
+        pool.addLiquidatedRoot(rLiq);
+    }
+
+    function test_SeizeSpendsLockedAndMintsTwoNotes() public {
+        VeilPool pool = _deploy(16);
+        (bytes32 rEth, bytes32 rLiq) = _primeSeize(pool);
+        bytes32 nfIn = keccak256("locked-note-nullifier");
+        bytes32 cLiq = keccak256("liquidator-note");
+        bytes32 cChange = keccak256("borrower-change-note");
+        (bytes memory journal, bytes memory seal) = _seizeJournal(rEth, rLiq, 4e18, nfIn, cLiq, cChange);
+
+        vm.expectEmit(true, false, false, true);
+        emit Seized(nfIn, cLiq, cChange, 1, 2);
+        pool.seize(seal, journal, "", "");
+
+        assertTrue(pool.isSpent(nfIn), "locked note nullifier spent");
+        assertEq(pool.nextIndex(), 3, "two notes inserted after the collateral leaf");
+    }
+
+    function test_SeizeUnknownEthRootReverts() public {
+        VeilPool pool = _deploy(16);
+        (, bytes32 rLiq) = _primeSeize(pool);
+        bytes32 badEth = keccak256("not a pool root");
+        (bytes memory journal, bytes memory seal) =
+            _seizeJournal(badEth, rLiq, 4e18, keccak256("n"), keccak256("cl"), keccak256("cc"));
+        vm.expectRevert(VeilPool.UnknownRoot.selector);
+        pool.seize(seal, journal, "", "");
+    }
+
+    function test_SeizeUnknownLiquidatedRootReverts() public {
+        VeilPool pool = _deploy(16);
+        pool.deposit(keccak256("locked-collateral-note"), "");
+        bytes32 rEth = pool.getLastRoot();
+        bytes32 rLiq = keccak256("never-relayed"); // no default-proof anchor
+        (bytes memory journal, bytes memory seal) =
+            _seizeJournal(rEth, rLiq, 4e18, keccak256("n"), keccak256("cl"), keccak256("cc"));
+        vm.expectRevert(VeilPool.UnknownLiquidatedRoot.selector);
+        pool.seize(seal, journal, "", "");
+    }
+
+    function test_SeizeBadProofReverts() public {
+        VeilPool pool = _deploy(16);
+        (bytes32 rEth, bytes32 rLiq) = _primeSeize(pool);
+        (bytes memory journal,) = _seizeJournal(rEth, rLiq, 4e18, keccak256("n"), keccak256("cl"), keccak256("cc"));
+        bytes memory badSeal = abi.encodePacked(keccak256("wrong"));
+        vm.expectRevert(bytes("bad proof"));
+        pool.seize(badSeal, journal, "", "");
+    }
+
+    function test_SeizeDoubleSpendReverts() public {
+        VeilPool pool = _deploy(16);
+        (bytes32 rEth, bytes32 rLiq) = _primeSeize(pool);
+        bytes32 nfIn = keccak256("locked-note-nullifier");
+        (bytes memory j1, bytes memory s1) = _seizeJournal(rEth, rLiq, 4e18, nfIn, keccak256("cl1"), keccak256("cc1"));
+        pool.seize(s1, j1, "", "");
+
+        bytes32 rEth2 = pool.getLastRoot();
+        (bytes memory j2, bytes memory s2) = _seizeJournal(rEth2, rLiq, 4e18, nfIn, keccak256("cl2"), keccak256("cc2"));
+        vm.expectRevert(VeilPool.NullifierAlreadySpent.selector);
+        pool.seize(s2, j2, "", "");
+    }
+
+    function test_SeizeBadJournalLengthReverts() public {
+        VeilPool pool = _deploy(16);
+        vm.expectRevert(VeilPool.BadSeizeJournalLength.selector);
+        pool.seize(hex"00", hex"deadbeef", "", "");
+    }
+
+    function test_AddLiquidatedRootOnlyRelayer() public {
+        address otherRelayer = address(0xBEEF);
+        VeilPool pool = new VeilPool(16, verifier, LOCK_IMG, UNLOCK_IMG, SEIZE_IMG, otherRelayer);
+        vm.expectRevert(VeilPool.NotRelayer.selector);
+        pool.addLiquidatedRoot(keccak256("r"));
+    }
+
+    function test_KnownLiquidatedRootTracked() public {
+        VeilPool pool = _deploy(16);
+        bytes32 rLiq = keccak256("R_liq");
+        assertTrue(!pool.knownLiquidatedRoots(rLiq), "unknown before");
+        pool.addLiquidatedRoot(rLiq);
+        assertTrue(pool.knownLiquidatedRoots(rLiq), "known after");
     }
 }
