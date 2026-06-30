@@ -18,8 +18,11 @@
 # local Nethermind verifier clone (referenced via git dep; keep only the result note)
 spike/stellar-risc0-verifier/
 
-# generated proof bundle (produced in CI / by the prover)
+# generated proof bundles (produced in CI / by the prover)
 guest/proof.json
+guest/proof-lock.json
+guest/proof-unlock.json
+guest/proof-seize.json
 
 # misc
 .DS_Store
