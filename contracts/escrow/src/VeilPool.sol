@@ -9,6 +9,13 @@ interface IRiscZeroVerifier {
     function verify(bytes calldata seal, bytes32 imageId, bytes32 journalDigest) external view;
 }
 
+/// @notice Minimal ERC-20 surface VeilPool needs to escrow wstETH collateral.
+interface IERC20 {
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function transfer(address to, uint256 amount) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
+}
+
 /// @title VeilPool
 /// @notice Shielded note pool for Veil's private margin lending. Collateral lives here as
 ///         hidden notes inside a SHA-256 Merkle tree; the chain only ever sees opaque
@@ -83,6 +90,16 @@ contract VeilPool is MerkleTreeWithHistory {
     ///         Wormhole committee + a ZK proof of the repay semantics replaces it in future work.
     address public immutable relayer;
 
+    /// @notice The productive collateral the pool escrows. Notes are denominated in wstETH
+    ///         base-units (1e18 scale); deposit binds each note's committed amount to real wstETH.
+    IERC20 public immutable wstETH;
+
+    /// @notice Total wstETH base-units escrowed across all deposits (the only public aggregate).
+    uint256 public totalDeposited;
+
+    /// @dev Note domain for an AVAILABLE (unlocked, spendable) note.
+    uint8 private constant DOMAIN_AVAILABLE = 0x00;
+
     /// @notice Soroban repaid-roots `R_sor` relayed from the vault. An unlock proof's membership
     ///         path proves the position was REPAID against one of these (the repay-proof anchor).
     mapping(bytes32 => bool) public knownSorobanRoots;
@@ -105,13 +122,15 @@ contract VeilPool is MerkleTreeWithHistory {
         bytes32 lockImageId_,
         bytes32 unlockImageId_,
         bytes32 seizeImageId_,
-        address relayer_
+        address relayer_,
+        IERC20 wstETH_
     ) MerkleTreeWithHistory(levels_) {
         verifier = verifier_;
         lockImageId = lockImageId_;
         unlockImageId = unlockImageId_;
         seizeImageId = seizeImageId_;
         relayer = relayer_;
+        wstETH = wstETH_;
     }
 
     /// @notice Relayer B posts a Soroban repaid-root so unlock proofs can anchor their repay-proof.
@@ -130,20 +149,43 @@ contract VeilPool is MerkleTreeWithHistory {
         emit LiquidatedRootAdded(root);
     }
 
-    /// @notice Insert a note commitment into the shielded tree.
-    /// @param commitment The opaque SHA-256 note commitment `C`.
-    /// @param encNote    Ciphertext of the note's opening, addressed to its owner.
-    /// @return leafIndex The leaf index assigned to `commitment`.
+    /// @notice Deposit `amount` wstETH as collateral, inserting a backed AVAILABLE note. The
+    ///         commitment is RECOMPUTED on-chain from the opening, so the inserted note provably
+    ///         commits to exactly the escrowed `amount` — this closes the unbacked-note soundness
+    ///         gap. Value then flows soundly: the lock joinsplit (item 4) conserves it into a LOCKED
+    ///         note, the borrow proves that note clears a threshold, and unlock/seize conserve it on
+    ///         the way out. The pool's wstETH balance always covers the sum of note amounts.
+    /// @param amount   Collateral in wstETH base-units (also the note's committed amount).
+    /// @param blinding Note blinding factor (hiding randomness).
+    /// @param spendPk  The owner's spend public key (spend authority is the separate nullifier key).
+    /// @param encNote  Ciphertext of the note's opening, addressed to its owner.
+    /// @return leafIndex The leaf index assigned to the note.
     ///
-    /// @dev ⚠️ SOUNDNESS — NOT YET BACKED BY COLLATERAL. In this build-order stage `deposit`
-    ///      inserts a commitment with NO wstETH transfer, so a note's committed `amount` is
-    ///      unverified. The borrow guest trusts that amount, therefore the pool is NOT
-    ///      economically sound until: (item 4) the lock joinsplit conserves value across a
-    ///      ZK proof, and (item 9) deposit escrows real wstETH equal to the note amount. Do
-    ///      NOT deploy for value-bearing use before those land. (Duplicate commitments are
-    ///      permitted: the key-derived nullifier includes `leafIndex`, so identical `C` at
-    ///      different leaves still produce distinct nullifiers.)
-    function deposit(bytes32 commitment, bytes calldata encNote) external returns (uint32 leafIndex) {
+    /// @dev PRIVACY (honest): a deposit's `amount` is visible in this tx (you cannot transfer a
+    ///      hidden quantity of a transparent ERC-20). Confidentiality of the LOAN's collateral comes
+    ///      from the lock joinsplit, which re-shields into a fresh LOCKED note unlinkable to this
+    ///      deposit (the key-derived nullifier hides which note was spent, among the anonymity set).
+    ///      So the borrow never reveals the amount, and an observer cannot tie a loan's collateral
+    ///      back to any specific deposit. The residual is timing/amount correlation — mitigated by
+    ///      decoys + a minimum anonymity set, never fully eliminable on a transparent L1.
+    ///      Spend authority is unaffected: spending requires the nullifier key `nk`, which is NOT
+    ///      part of the revealed opening. (Duplicate openings are permitted: the key-derived
+    ///      nullifier includes `leafIndex`, so identical `C` at different leaves stay distinct.)
+    function deposit(uint128 amount, bytes32 blinding, bytes32 spendPk, bytes calldata encNote)
+        external
+        returns (uint32 leafIndex)
+    {
+        // Recompute the note commitment from the opening: a note that does not commit to the
+        // escrowed amount cannot be inserted. Byte layout MUST match veil_core::notes::note_commitment
+        // (and the borrow guest): "VEIL_NOTE" ‖ domain(1) ‖ amount(16 BE) ‖ blinding(32) ‖ spendPk(32) ‖ aux(32).
+        bytes32 commitment = sha256(
+            abi.encodePacked("VEIL_NOTE", DOMAIN_AVAILABLE, amount, blinding, spendPk, bytes32(0))
+        );
+
+        // Escrow the collateral (checks-effects-interactions: pull funds, then mutate the tree).
+        wstETH.transferFrom(msg.sender, address(this), amount);
+        totalDeposited += amount;
+
         leafIndex = _insert(commitment);
         emit Commitment(commitment, leafIndex, encNote);
     }

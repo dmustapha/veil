@@ -651,6 +651,18 @@ mod tests {
     }
 
     #[test]
+    fn note_commitment_matches_cross_impl_vector() {
+        // CROSS-IMPL VECTOR (note commitment): AVAILABLE note, amount = 2e18, blinding = 0x01..01,
+        // spendPk = 0x02..02, aux = 0. `VeilPool.deposit` recomputes this EXACT commitment on-chain
+        // before escrowing wstETH; `test_DepositCommitmentMatchesCrossImplVector` pins the same
+        // literal. If the byte layout drifts, a deposited note won't be provable by the borrow guest.
+        let amount: u128 = 2_000_000_000_000_000_000;
+        let c = note_commitment(DOMAIN_AVAILABLE, amount, &fill(0x01), &fill(0x02), &[0u8; 32]);
+        let pinned = hex_lit("b4390cd51e4910e5568adda7fccd7deae6af715819a96f525ed1a084a65efcee");
+        assert_eq!(&c[..], &pinned[..], "note commitment drifted from the shared deposit vector");
+    }
+
+    #[test]
     fn merkle_fold_orders_by_index_bit() {
         let leaf = fill(0xAA);
         let sib = fill(0xBB);
