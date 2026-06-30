@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {VeilPool, IRiscZeroVerifier, IERC20} from "../src/VeilPool.sol";
+import {VeilPool, IRiscZeroVerifier, IWstETH} from "../src/VeilPool.sol";
 import {MerkleTreeWithHistory} from "../src/MerkleTreeWithHistory.sol";
 import {MockWstETH} from "../src/MockWstETH.sol";
 
@@ -26,7 +26,7 @@ contract MockRiscZeroVerifier is IRiscZeroVerifier {
 /// @dev Exposes internal helpers so the tree + nullifier set can be exercised directly with
 ///      arbitrary leaves (the real `deposit` derives the commitment on-chain). Test infra only.
 contract VeilPoolHarness is VeilPool {
-    constructor(uint32 levels_, IRiscZeroVerifier v_, IERC20 w_)
+    constructor(uint32 levels_, IRiscZeroVerifier v_, IWstETH w_)
         VeilPool(levels_, v_, LOCK_IMG, UNLOCK_IMG, SEIZE_IMG, msg.sender, w_)
     {}
 
@@ -66,7 +66,7 @@ contract VeilPoolTest is Test {
 
     function _deploy(uint32 levels) internal returns (VeilPoolHarness) {
         // The test contract is the disclosed-trust relayer (can post Soroban roots).
-        return new VeilPoolHarness(levels, verifier, IERC20(address(wst)));
+        return new VeilPoolHarness(levels, verifier, IWstETH(address(wst)));
     }
 
     /// Build a 128-byte unlock journal and the matching mock seal (= its sha256 digest).
@@ -190,6 +190,24 @@ contract VeilPoolTest is Test {
         assertEq(pool.nextIndex(), 0, "no note inserted when escrow fails");
     }
 
+    function test_CollateralAppreciatesWithRate() public {
+        // The yield beat: notes are denominated in fixed wstETH base-UNITS, but wstETH appreciates
+        // (stEthPerToken ↑). The SAME escrowed units back the SAME loans, now worth more stETH —
+        // so a borrower's proven floor becomes a conservative lower bound and health only improves.
+        VeilPoolHarness pool = _deploy(16);
+        _fundAndApprove(pool, 4e18);
+        pool.deposit(4e18, keccak256("c"), keccak256("pk"), "");
+
+        // at par (1.0), the stETH value equals the deposited units.
+        assertEq(pool.totalDeposited(), 4e18, "units fixed");
+        assertEq(pool.totalCollateralStEth(), 4e18, "value at par");
+
+        // wstETH appreciates 5% → same units, 5% more stETH value. Units (and every proof) unchanged.
+        wst.setStEthPerToken(1.05e18);
+        assertEq(pool.totalDeposited(), 4e18, "units still fixed");
+        assertEq(pool.totalCollateralStEth(), 4.2e18, "value grew with the rate");
+    }
+
     function test_UnknownRootRejected() public {
         VeilPoolHarness pool = _deploy(16);
         assertTrue(!pool.isKnownRoot(keccak256("never inserted")), "random root unknown");
@@ -248,7 +266,7 @@ contract VeilPoolTest is Test {
     }
 
     function test_MarkNullifierThenSpent() public {
-        VeilPoolHarness pool = new VeilPoolHarness(16, verifier, IERC20(address(wst)));
+        VeilPoolHarness pool = new VeilPoolHarness(16, verifier, IWstETH(address(wst)));
         bytes32 nf = keccak256("nullifier-1");
         assertTrue(!pool.isSpent(nf), "unspent before");
         pool.exposed_markNullifier(nf);
@@ -256,7 +274,7 @@ contract VeilPoolTest is Test {
     }
 
     function test_MarkNullifierTwiceReverts() public {
-        VeilPoolHarness pool = new VeilPoolHarness(16, verifier, IERC20(address(wst)));
+        VeilPoolHarness pool = new VeilPoolHarness(16, verifier, IWstETH(address(wst)));
         bytes32 nf = keccak256("nullifier-1");
         pool.exposed_markNullifier(nf);
         vm.expectRevert(VeilPool.NullifierAlreadySpent.selector);
@@ -413,7 +431,7 @@ contract VeilPoolTest is Test {
     function test_AddSorobanRootOnlyRelayer() public {
         // Deploy with a DIFFERENT relayer so this test contract is not authorized.
         address otherRelayer = address(0xBEEF);
-        VeilPool pool = new VeilPool(16, verifier, LOCK_IMG, UNLOCK_IMG, SEIZE_IMG, otherRelayer, IERC20(address(wst)));
+        VeilPool pool = new VeilPool(16, verifier, LOCK_IMG, UNLOCK_IMG, SEIZE_IMG, otherRelayer, IWstETH(address(wst)));
         vm.expectRevert(VeilPool.NotRelayer.selector);
         pool.addSorobanRoot(keccak256("r"));
     }
@@ -513,7 +531,7 @@ contract VeilPoolTest is Test {
 
     function test_AddLiquidatedRootOnlyRelayer() public {
         address otherRelayer = address(0xBEEF);
-        VeilPool pool = new VeilPool(16, verifier, LOCK_IMG, UNLOCK_IMG, SEIZE_IMG, otherRelayer, IERC20(address(wst)));
+        VeilPool pool = new VeilPool(16, verifier, LOCK_IMG, UNLOCK_IMG, SEIZE_IMG, otherRelayer, IWstETH(address(wst)));
         vm.expectRevert(VeilPool.NotRelayer.selector);
         pool.addLiquidatedRoot(keccak256("r"));
     }
