@@ -180,3 +180,26 @@ Deployer/admin `veil-spike` `GABHHKTQ…FXIF`, sdk 27.0.0-rc.1 / protocol 27:
   `CBSZGP4UJK4LHWJD64HORNOHMZPE4F3O3WYUPXWWA2WWIUSUIP3GEMWJ` (deploy tx `eae71a2e5df5d542ee9738e063fdfc182414844c8cfb6633683db18f3abff4b4`)
   - `pool.set_vault` tx `b5c8e3527be97addc26bad1ab74761ad4c00deb8fee863371fbe73def226139e`
   - `lp_deposit` 9 real USDC (90000000) tx `70506df07866a1cfd84db35c89d7a6acac5a48e6140a074fb997de9e246a089e` → vault total_idle 90000000
+
+### Live deposit→lock→borrow (client-side proofs, REAL USDC disbursed)
+The full lifecycle, every proof generated client-side by the browser prover (`web/lib/prove/`,
+`web/scripts/e2e/`) and each spend verified on-chain by its deployed verifier:
+- **deposit** tx `c9674877f718d6b12081da81ddc3966ccaaab19fd2eef3474c4277bbe95ef669` — AVAILABLE note
+  (amount 2e15 VEILC, nk=5 spendPk, blinding 1) at **leaf 0**; `C_available` =
+  `7530136360113033928878418794468993682904198215930852606036456759954079834832`; the issuer transfer
+  issued 2e15 VEILC into the pool (`total_deposited` = 2e15 solvency floor).
+- **lock** tx `933732e814d8373bbdf775089a8d139bfe53bf30c8a36315179f3a0a09857569` — a CLIENT-generated
+  Groth16 lock proof verified on-chain (lock verifier `CD4LXCNP…SH6B`); nullifier
+  `6332296964618480087551862317697555777946550233501958926381485656098543397117` burned; LOCKED note
+  minted at **leaf 1** (`C_locked` = `6113537084864094179256913307414465815070903443018625700072789248813390003631`);
+  new pool root `R1` = `3145978733278499968912379085763570999484930165071358457648666178471329315431`.
+- **borrow** tx `a2cb861b72213231b2cac6789b9ca85445294f7de5902361156605d91c0747f3` — a CLIENT-generated
+  Groth16 borrow proof (positionId `6878142553…057766`, lockHandle `6303898728…007978`, threshold 1e15)
+  verified on-chain (borrow verifier `CBTSWUY5…DMM2`) → **REAL 1.1343694 USDC disbursed**
+  (`11343694` stroops, vault→veil-spike; balance `14686478 → 26030172`). Position ACTIVE, floor 1e15,
+  principal 11343694; vault idle `90000000 → 78656306`. Amount (2e15) stays hidden — only the 1e15
+  floor is disclosed.
+- **cheat-fails on-chain** (ZK load-bearing): the SAME borrow proof with a tampered `threshold`
+  (1e15+1, an unproven floor) → the vault's borrow-verifier call returns `Error(Contract, #0)` =
+  InvalidProof, escalated to a VM trap → the borrow reverts, **0 USDC moved** (balance unchanged). The
+  proof binds the exact floor; you cannot claim one you did not prove.
