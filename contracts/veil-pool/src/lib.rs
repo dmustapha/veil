@@ -8,6 +8,7 @@
 mod constants;
 pub mod merkle_with_history;
 pub mod notes;
+pub mod nullifiers;
 pub mod poseidon2;
 
 use soroban_sdk::{
@@ -223,6 +224,31 @@ mod note_commitment_test {
         let avail = note_commitment(&env, DS_NOTE_AVAILABLE, &amount, &pk, &b, &zero);
         let locked = note_commitment(&env, DS_NOTE_LOCKED, &amount, &pk, &b, &zero);
         assert!(avail != locked, "domain separation must distinguish AVAILABLE from LOCKED");
+    }
+}
+
+#[cfg(test)]
+mod nullifier_test {
+    use crate::nullifiers::NullifierSet as N;
+    use crate::VeilPool;
+    use soroban_sdk::{Env, U256};
+
+    #[test]
+    fn nullifier_is_single_spend() {
+        let env = Env::default();
+        let id = env.register(VeilPool, ());
+        let nf = U256::from_u32(&env, 42);
+
+        // Fresh nullifier: not spent, spendable once.
+        assert!(!env.as_contract(&id, || N::is_spent(&env, &nf)));
+        assert!(env.as_contract(&id, || N::try_spend(&env, &nf)), "first spend succeeds");
+        assert!(env.as_contract(&id, || N::is_spent(&env, &nf)), "now marked spent");
+
+        // Replay is rejected; a different nullifier is unaffected.
+        assert!(!env.as_contract(&id, || N::try_spend(&env, &nf)), "double-spend rejected");
+        let other = U256::from_u32(&env, 43);
+        assert!(!env.as_contract(&id, || N::is_spent(&env, &other)));
+        assert!(env.as_contract(&id, || N::try_spend(&env, &other)), "independent nullifier spends");
     }
 }
 
