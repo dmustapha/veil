@@ -126,4 +126,6 @@ impl VeilVerifier {
 }
 
 #[cfg(test)]
+mod fixtures;
+#[cfg(test)]
 mod test;
