@@ -8,11 +8,20 @@ license = "Apache-2.0"
 [workspace]
 
 [lib]
-crate-type = ["lib"]
+crate-type = ["lib", "cdylib"]
 doctest = false
 
 [dependencies]
-soroban-sdk = { version = "26", features = ["hazmat"] }
+soroban-sdk = { version = "=27.0.0-rc.1", features = ["hazmat"] }
+# Groth16Proof / Groth16Error types for the cross-contract calls to the deployed lock/unlock/seize
+# verifiers (the note-spend joinsplits).
+veil-verifier = { path = "../veil-verifier" }
 
 [dev-dependencies]
-soroban-sdk = { version = "26", features = ["hazmat", "testutils"] }
+soroban-sdk = { version = "=27.0.0-rc.1", features = ["hazmat", "testutils"] }
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+lto = true
+codegen-units = 1

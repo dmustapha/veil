@@ -13,17 +13,32 @@ pub mod poseidon2;
 mod ttl;
 
 use soroban_sdk::{
-    contract, contractevent, contractimpl, contracttype, token, Address, Bytes, Env, U256,
+    contract, contractclient, contractevent, contractimpl, contracttype, crypto::bn254::Bn254Fr,
+    token, Address, Bytes, BytesN, Env, Vec, U256,
 };
 
 use merkle_with_history::MerkleTreeWithHistory;
 use notes::{note_commitment, DS_NOTE_AVAILABLE};
+use nullifiers::NullifierSet;
+use veil_verifier::{Groth16Error, Groth16Proof};
 
 /// Emitted on every deposit (deposits are public): the leaf index (topic) and its commitment.
 #[contractevent]
 #[derive(Clone)]
 pub struct Deposit {
     #[topic]
+    pub index: u32,
+    pub commitment: U256,
+}
+
+/// Emitted on every note-spend joinsplit (lock/unlock/seize): the consumed nullifier (topic) and the
+/// first minted leaf (index + commitment). For `seize` a change leaf follows at `index + 1`. Lets an
+/// indexer rebuild the tree from deposits + spends without recomputing any secret.
+#[contractevent]
+#[derive(Clone)]
+pub struct Spent {
+    #[topic]
+    pub nullifier: U256,
     pub index: u32,
     pub commitment: U256,
 }
@@ -36,6 +51,34 @@ enum ConfigKey {
     Token,
     /// Running sum of escrowed collateral — the pool's solvency floor (= Σ live note amounts).
     TotalDeposited,
+    /// Admin (may set the vault once, post-deploy — resolves the pool↔vault deploy cycle).
+    Admin,
+    /// Deployed Groth16 verifiers, one per note-spend joinsplit circuit.
+    LockVerifier,
+    UnlockVerifier,
+    SeizeVerifier,
+    /// The veil-vault, source of the repaid/liquidated gating roots that unlock/seize prove against.
+    Vault,
+}
+
+/// A deployed Groth16 verifier. `verify` returns `Ok(true)` on a valid proof and TRAPS (reverts) on
+/// an invalid proof or mismatched public inputs — public inputs in snarkjs order.
+#[contractclient(name = "VerifierClient")]
+pub trait VerifierIface {
+    fn verify(
+        env: Env,
+        proof: Groth16Proof,
+        public_inputs: Vec<Bn254Fr>,
+    ) -> Result<bool, Groth16Error>;
+}
+
+/// The veil-vault — publishes the Poseidon repaid/liquidated gating roots. unlock proves membership
+/// against `repaid_root`, seize against `liquidated_root` (collateral is recoverable/seizable only
+/// after the vault has recorded the repayment / liquidation).
+#[contractclient(name = "VaultClient")]
+pub trait VaultIface {
+    fn repaid_root(env: Env) -> U256;
+    fn liquidated_root(env: Env) -> U256;
 }
 
 /// Shielded note pool. Holds the Poseidon2 Merkle tree of note commitments; `deposit` escrows
@@ -56,11 +99,40 @@ impl VeilPool {
     /// Deploy-time init: the collateral token + the depth-`levels` note tree. Runs atomically with
     /// deployment (a constructor), so there is no post-deploy window in which an attacker could
     /// front-run `init` to pin a malicious collateral token.
-    pub fn __constructor(env: Env, token: Address, levels: u32) {
-        env.storage().instance().set(&ConfigKey::Token, &token);
-        env.storage().instance().set(&ConfigKey::TotalDeposited, &0i128);
-        env.storage().instance().extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
+    #[allow(clippy::too_many_arguments)]
+    pub fn __constructor(
+        env: Env,
+        admin: Address,
+        token: Address,
+        levels: u32,
+        lock_verifier: Address,
+        unlock_verifier: Address,
+        seize_verifier: Address,
+    ) {
+        let s = env.storage().instance();
+        s.set(&ConfigKey::Admin, &admin);
+        s.set(&ConfigKey::Token, &token);
+        s.set(&ConfigKey::TotalDeposited, &0i128);
+        s.set(&ConfigKey::LockVerifier, &lock_verifier);
+        s.set(&ConfigKey::UnlockVerifier, &unlock_verifier);
+        s.set(&ConfigKey::SeizeVerifier, &seize_verifier);
+        s.extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
         MerkleTreeWithHistory::init(&env, levels).expect("init");
+    }
+
+    /// Bind the veil-vault whose gating roots unlock/seize prove against. Admin-gated and ONE-TIME
+    /// (resolves the pool↔vault deploy cycle: deploy pool, deploy vault with the pool address, then
+    /// call this once). Rejects a second call so the binding can't be swapped later.
+    pub fn set_vault(env: Env, vault: Address) {
+        let admin: Address =
+            env.storage().instance().get(&ConfigKey::Admin).expect("not initialized");
+        admin.require_auth();
+        assert!(
+            !env.storage().instance().has(&ConfigKey::Vault),
+            "vault already set"
+        );
+        env.storage().instance().set(&ConfigKey::Vault, &vault);
+        env.storage().instance().extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
     }
 
     /// Escrow `amount` of collateral and insert its AVAILABLE note commitment.
@@ -116,6 +188,120 @@ impl VeilPool {
     pub fn is_known_root(env: Env, root: U256) -> bool {
         MerkleTreeWithHistory::is_known_root(&env, &root).expect("is_known_root")
     }
+
+    /// LOCK joinsplit: spend an AVAILABLE note (proved a member of a known pool `root`, its nullifier
+    /// published) and mint a LOCKED note `commitment` of the SAME amount, bound to `lock_id`. The
+    /// lock proof enforces value conservation in-circuit; the pool checks the root, burns the
+    /// nullifier (single-spend), and inserts the new leaf. Returns the new leaf index.
+    pub fn lock(
+        env: Env,
+        proof: Groth16Proof,
+        nullifier: U256,
+        commitment: U256,
+        root: U256,
+        lock_id: U256,
+    ) -> u32 {
+        // Public signals in snarkjs order: [nullifierOut, commitmentOut, root, lockId].
+        let mut pi: Vec<Bn254Fr> = Vec::new(&env);
+        pi.push_back(Self::fr(&env, &nullifier));
+        pi.push_back(Self::fr(&env, &commitment));
+        pi.push_back(Self::fr(&env, &root));
+        pi.push_back(Self::fr(&env, &lock_id));
+        Self::verify(&env, ConfigKey::LockVerifier, &proof, &pi);
+
+        assert!(Self::known_root(&env, &root), "unknown pool root");
+        assert!(NullifierSet::try_spend(&env, &nullifier), "nullifier already spent");
+        Self::insert_spend(&env, nullifier, commitment)
+    }
+
+    /// UNLOCK joinsplit: spend a LOCKED note (member of a known pool `root_pool`) and mint an
+    /// AVAILABLE note `commitment`, GATED on the repayment — `root_repaid` must equal the vault's
+    /// current repaid-root (the vault appends `repaid_leaf` on repay; the circuit proves membership).
+    /// So collateral is recoverable ONLY after the loan is repaid. Returns the new leaf index.
+    pub fn unlock(
+        env: Env,
+        proof: Groth16Proof,
+        nullifier: U256,
+        commitment: U256,
+        root_pool: U256,
+        root_repaid: U256,
+    ) -> u32 {
+        // Public signals in snarkjs order: [nullifierOut, commitmentOut, rootPool, rootRepaid].
+        let mut pi: Vec<Bn254Fr> = Vec::new(&env);
+        pi.push_back(Self::fr(&env, &nullifier));
+        pi.push_back(Self::fr(&env, &commitment));
+        pi.push_back(Self::fr(&env, &root_pool));
+        pi.push_back(Self::fr(&env, &root_repaid));
+        Self::verify(&env, ConfigKey::UnlockVerifier, &proof, &pi);
+
+        assert!(Self::known_root(&env, &root_pool), "unknown pool root");
+        assert!(root_repaid == Self::vault(&env).repaid_root(), "unknown/stale repaid root");
+        assert!(NullifierSet::try_spend(&env, &nullifier), "nullifier already spent");
+        Self::insert_spend(&env, nullifier, commitment)
+    }
+
+    /// SEIZE joinsplit: spend a LOCKED note GATED on liquidation (`root_liquidated` must equal the
+    /// vault's current liquidated-root) and split it into a liquidator note worth the public `seized`
+    /// floor + a change note for the hidden surplus (`seized + change == amount`, enforced
+    /// in-circuit). Returns the (liquidator, change) leaf indices.
+    #[allow(clippy::too_many_arguments)]
+    pub fn seize(
+        env: Env,
+        proof: Groth16Proof,
+        nullifier: U256,
+        commitment_liquidator: U256,
+        commitment_change: U256,
+        root_pool: U256,
+        root_liquidated: U256,
+        seized: U256,
+    ) -> (u32, u32) {
+        // Public signals: [nullifierOut, commitmentLiquidator, commitmentChange, rootPool, rootLiquidated, seized].
+        let mut pi: Vec<Bn254Fr> = Vec::new(&env);
+        pi.push_back(Self::fr(&env, &nullifier));
+        pi.push_back(Self::fr(&env, &commitment_liquidator));
+        pi.push_back(Self::fr(&env, &commitment_change));
+        pi.push_back(Self::fr(&env, &root_pool));
+        pi.push_back(Self::fr(&env, &root_liquidated));
+        pi.push_back(Self::fr(&env, &seized));
+        Self::verify(&env, ConfigKey::SeizeVerifier, &proof, &pi);
+
+        assert!(Self::known_root(&env, &root_pool), "unknown pool root");
+        assert!(root_liquidated == Self::vault(&env).liquidated_root(), "unknown/stale liquidated root");
+        assert!(NullifierSet::try_spend(&env, &nullifier), "nullifier already spent");
+        // Insert the liquidator + change leaves as two sequential single inserts (index-agnostic;
+        // insert_two_leaves would require an even next_index). They land at i1 and i1 + 1.
+        let i1 = MerkleTreeWithHistory::insert_leaf(&env, commitment_liquidator.clone()).expect("insert");
+        let i2 = MerkleTreeWithHistory::insert_leaf(&env, commitment_change).expect("insert");
+        env.storage().instance().extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
+        Spent { nullifier, index: i1, commitment: commitment_liquidator }.publish(&env);
+        (i1, i2)
+    }
+
+    // ---- internals ----
+    /// Verify `pi` against the deployed verifier at `key`; TRAPS on an invalid proof (fail-closed).
+    fn verify(env: &Env, key: ConfigKey, proof: &Groth16Proof, pi: &Vec<Bn254Fr>) {
+        let addr: Address = env.storage().instance().get(&key).expect("verifier not set");
+        assert!(VerifierClient::new(env, &addr).verify(proof, pi), "proof rejected");
+    }
+    fn vault<'a>(env: &Env) -> VaultClient<'a> {
+        let addr: Address = env.storage().instance().get(&ConfigKey::Vault).expect("vault not set");
+        VaultClient::new(env, &addr)
+    }
+    fn known_root(env: &Env, root: &U256) -> bool {
+        MerkleTreeWithHistory::is_known_root(env, root).expect("is_known_root")
+    }
+    /// Insert a spend's minted leaf, bump TTL, emit `Spent`. Returns the leaf index.
+    fn insert_spend(env: &Env, nullifier: U256, commitment: U256) -> u32 {
+        let index = MerkleTreeWithHistory::insert_leaf(env, commitment.clone()).expect("insert");
+        env.storage().instance().extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
+        Spent { nullifier, index, commitment }.publish(env);
+        index
+    }
+    fn fr(env: &Env, v: &U256) -> Bn254Fr {
+        let _ = env;
+        let b: BytesN<32> = v.to_be_bytes().try_into().expect("U256 is 32 bytes");
+        Bn254Fr::from_bytes(b)
+    }
 }
 
 /// Minimal storage-host contract for the internal-module tests (tree / nullifier set): they need a
@@ -127,6 +313,199 @@ pub struct TestHost;
 #[cfg(test)]
 #[contractimpl]
 impl TestHost {}
+
+/// Recording stub for a deployed joinsplit verifier: accepts any proof, stores the public inputs so
+/// tests can assert snarkjs order. The real Groth16 verify is proven separately (Phase 3 / 6a).
+#[cfg(test)]
+#[contract]
+pub struct StubVerifier;
+#[cfg(test)]
+#[contractimpl]
+impl StubVerifier {
+    pub fn verify(
+        env: Env,
+        proof: Groth16Proof,
+        public_inputs: Vec<Bn254Fr>,
+    ) -> Result<bool, Groth16Error> {
+        let _ = proof;
+        let mut rec: Vec<U256> = Vec::new(&env);
+        for fr in public_inputs.iter() {
+            rec.push_back(U256::from_be_bytes(
+                &env,
+                &Bytes::from_array(&env, &fr.to_bytes().to_array()),
+            ));
+        }
+        env.storage().instance().set(&soroban_sdk::symbol_short!("REC"), &rec);
+        Ok(true)
+    }
+    pub fn recorded(env: Env) -> Vec<U256> {
+        env.storage().instance().get(&soroban_sdk::symbol_short!("REC")).unwrap()
+    }
+}
+
+/// Stub veil-vault exposing settable repaid/liquidated gating roots for unlock/seize tests.
+#[cfg(test)]
+#[contract]
+pub struct StubVault;
+#[cfg(test)]
+#[contractimpl]
+impl StubVault {
+    pub fn set_roots(env: Env, repaid: U256, liquidated: U256) {
+        env.storage().instance().set(&soroban_sdk::symbol_short!("RE"), &repaid);
+        env.storage().instance().set(&soroban_sdk::symbol_short!("LI"), &liquidated);
+    }
+    pub fn repaid_root(env: Env) -> U256 {
+        env.storage().instance().get(&soroban_sdk::symbol_short!("RE")).unwrap()
+    }
+    pub fn liquidated_root(env: Env) -> U256 {
+        env.storage().instance().get(&soroban_sdk::symbol_short!("LI")).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod spend_test {
+    use crate::{StubVault, StubVerifier, VeilPool, VeilPoolClient};
+    use soroban_sdk::crypto::bn254::{Bn254G1Affine, Bn254G2Affine};
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{token, Address, BytesN, Env, U256};
+    use veil_verifier::Groth16Proof;
+
+    struct Fx<'a> {
+        env: Env,
+        pool: VeilPoolClient<'a>,
+        verifier: Address,
+        vault: Address,
+        known_root: U256,
+    }
+
+    fn dummy_proof(env: &Env) -> Groth16Proof {
+        Groth16Proof {
+            a: Bn254G1Affine::from_bytes(BytesN::from_array(env, &[0u8; 64])),
+            b: Bn254G2Affine::from_bytes(BytesN::from_array(env, &[0u8; 128])),
+            c: Bn254G1Affine::from_bytes(BytesN::from_array(env, &[0u8; 64])),
+        }
+    }
+
+    fn setup() -> Fx<'static> {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(Address::generate(&env));
+        let verifier = env.register(StubVerifier, ());
+        let vault = env.register(StubVault, ());
+        let id = env.register(
+            VeilPool,
+            (admin, sac.address(), 16u32, verifier.clone(), verifier.clone(), verifier.clone()),
+        );
+        let pool = VeilPoolClient::new(&env, &id);
+        pool.set_vault(&vault);
+
+        // A deposit establishes a known, non-trivial pool root the spends can prove against.
+        let user = Address::generate(&env);
+        token::StellarAssetClient::new(&env, &sac.address()).mint(&user, &1_000i128);
+        pool.deposit(&user, &1_000i128, &U256::from_u32(&env, 7), &U256::from_u32(&env, 9));
+        let known_root = pool.root();
+        Fx { env, pool, verifier, vault, known_root }
+    }
+
+    #[test]
+    fn lock_verifies_spends_nullifier_and_inserts_leaf() {
+        let f = setup();
+        let nf = U256::from_u32(&f.env, 111);
+        let commitment = U256::from_u32(&f.env, 222);
+        let lock_id = U256::from_u32(&f.env, 333);
+
+        let idx = f.pool.lock(&dummy_proof(&f.env), &nf, &commitment, &f.known_root, &lock_id);
+        assert!(idx >= 1, "LOCKED leaf inserted after the deposit leaf");
+
+        // Verifier saw [nullifierOut, commitmentOut, root, lockId] in snarkjs order.
+        let rec = f.env.invoke_contract::<soroban_sdk::Vec<U256>>(
+            &f.verifier,
+            &soroban_sdk::Symbol::new(&f.env, "recorded"),
+            soroban_sdk::vec![&f.env],
+        );
+        assert_eq!(rec.get(0).unwrap(), nf);
+        assert_eq!(rec.get(1).unwrap(), commitment);
+        assert_eq!(rec.get(2).unwrap(), f.known_root);
+        assert_eq!(rec.get(3).unwrap(), lock_id);
+    }
+
+    #[test]
+    #[should_panic(expected = "nullifier already spent")]
+    fn lock_rejects_double_spend() {
+        let f = setup();
+        let nf = U256::from_u32(&f.env, 111);
+        f.pool.lock(&dummy_proof(&f.env), &nf, &U256::from_u32(&f.env, 1), &f.known_root, &U256::from_u32(&f.env, 2));
+        // Same nullifier, fresh commitment → must be rejected.
+        f.pool.lock(&dummy_proof(&f.env), &nf, &U256::from_u32(&f.env, 3), &f.known_root, &U256::from_u32(&f.env, 4));
+    }
+
+    #[test]
+    #[should_panic(expected = "unknown pool root")]
+    fn lock_rejects_unknown_root() {
+        let f = setup();
+        let bad_root = U256::from_u32(&f.env, 999_999);
+        f.pool.lock(&dummy_proof(&f.env), &U256::from_u32(&f.env, 1), &U256::from_u32(&f.env, 2), &bad_root, &U256::from_u32(&f.env, 3));
+    }
+
+    #[test]
+    fn unlock_gated_on_vault_repaid_root() {
+        let f = setup();
+        let repaid = U256::from_u32(&f.env, 42);
+        let liquidated = U256::from_u32(&f.env, 43);
+        f.env.invoke_contract::<()>(
+            &f.vault,
+            &soroban_sdk::Symbol::new(&f.env, "set_roots"),
+            soroban_sdk::vec![&f.env, repaid.clone().into_val(&f.env), liquidated.into_val(&f.env)],
+        );
+        let idx = f.pool.unlock(&dummy_proof(&f.env), &U256::from_u32(&f.env, 5), &U256::from_u32(&f.env, 6), &f.known_root, &repaid);
+        assert!(idx >= 1, "recovered AVAILABLE note inserted");
+    }
+
+    #[test]
+    #[should_panic(expected = "unknown/stale repaid root")]
+    fn unlock_rejects_wrong_repaid_root() {
+        let f = setup();
+        f.env.invoke_contract::<()>(
+            &f.vault,
+            &soroban_sdk::Symbol::new(&f.env, "set_roots"),
+            soroban_sdk::vec![&f.env, U256::from_u32(&f.env, 42).into_val(&f.env), U256::from_u32(&f.env, 43).into_val(&f.env)],
+        );
+        // root_repaid != vault.repaid_root() → rejected (collateral not recoverable without repay).
+        f.pool.unlock(&dummy_proof(&f.env), &U256::from_u32(&f.env, 5), &U256::from_u32(&f.env, 6), &f.known_root, &U256::from_u32(&f.env, 99));
+    }
+
+    #[test]
+    fn seize_gated_on_liquidated_root_and_splits_two_leaves() {
+        let f = setup();
+        let repaid = U256::from_u32(&f.env, 42);
+        let liquidated = U256::from_u32(&f.env, 43);
+        f.env.invoke_contract::<()>(
+            &f.vault,
+            &soroban_sdk::Symbol::new(&f.env, "set_roots"),
+            soroban_sdk::vec![&f.env, repaid.into_val(&f.env), liquidated.clone().into_val(&f.env)],
+        );
+        let (i1, i2) = f.pool.seize(
+            &dummy_proof(&f.env),
+            &U256::from_u32(&f.env, 7),
+            &U256::from_u32(&f.env, 8),  // liquidator commitment
+            &U256::from_u32(&f.env, 9),  // change commitment
+            &f.known_root,
+            &liquidated,
+            &U256::from_u32(&f.env, 500), // seized floor
+        );
+        assert_eq!(i2, i1 + 1, "liquidator + change leaves are sequential");
+    }
+
+    #[test]
+    #[should_panic(expected = "vault already set")]
+    fn set_vault_is_one_time() {
+        let f = setup();
+        f.pool.set_vault(&Address::generate(&f.env)); // second call rejected
+    }
+
+    use soroban_sdk::IntoVal;
+}
 
 #[cfg(test)]
 mod gate_zero_test {
@@ -428,7 +807,7 @@ mod deposit_test {
         let coin_admin = token::StellarAssetClient::new(&env, &sac.address());
         coin_admin.mint(&user, &1_000_000i128);
 
-        let id = env.register(VeilPool, (sac.address(), 16u32));
+        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env)));
         let pool = VeilPoolClient::new(&env, &id);
 
         let amount = 500_000i128;
@@ -479,7 +858,7 @@ mod deposit_test {
         let sac = env.register_stellar_asset_contract_v2(issuer);
         token::StellarAssetClient::new(&env, &sac.address())
             .mint(&user, &3_000_000_000_000_000_000i128);
-        let id = env.register(VeilPool, (sac.address(), 16u32));
+        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env)));
         let pool = VeilPoolClient::new(&env, &id);
 
         pool.deposit(
@@ -508,7 +887,7 @@ mod deposit_test {
         let issuer = Address::generate(&env);
         let user = Address::generate(&env);
         let sac = env.register_stellar_asset_contract_v2(issuer);
-        let id = env.register(VeilPool, (sac.address(), 16u32));
+        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env)));
         let pool = VeilPoolClient::new(&env, &id);
         pool.deposit(&user, &0i128, &U256::from_u32(&env, 2), &U256::from_u32(&env, 1));
     }
@@ -525,7 +904,7 @@ mod deposit_test {
         let user = Address::generate(&env);
         let sac = env.register_stellar_asset_contract_v2(issuer);
         token::StellarAssetClient::new(&env, &sac.address()).mint(&user, &1_000i128);
-        let id = env.register(VeilPool, (sac.address(), 16u32));
+        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env)));
         let pool = VeilPoolClient::new(&env, &id);
 
         let too_big = U256::from_be_bytes(&env, &soroban_sdk::Bytes::from_array(&env, &[0xFFu8; 32]));
