@@ -87,6 +87,15 @@ pub trait VaultIface {
 #[contract]
 pub struct VeilPool;
 
+/// BN254 scalar field modulus `r` (big-endian). Spend inputs are field elements; `Bn254Fr::from_bytes`
+/// reduces mod `r`, but the nullifier set / tree key on the raw `U256` — so a non-canonical
+/// representative (`nf + r`) would be a distinct key yet the SAME field element, re-verifying the same
+/// proof (double-spend). Every field input is range-rejected against this before use. See audit C-01.
+const BN254_R: [u8; 32] = [
+    0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
+    0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91, 0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x01,
+];
+
 /// Widen a positive `i128` amount to a BN254 field element (16-byte BE at the low word).
 fn amount_to_field(env: &Env, amount: i128) -> U256 {
     let mut b = [0u8; 32];
@@ -201,6 +210,9 @@ impl VeilPool {
         root: U256,
         lock_id: U256,
     ) -> u32 {
+        for v in [&nullifier, &commitment, &root, &lock_id] {
+            Self::require_canonical(&env, v);
+        }
         // Public signals in snarkjs order: [nullifierOut, commitmentOut, root, lockId].
         let mut pi: Vec<Bn254Fr> = Vec::new(&env);
         pi.push_back(Self::fr(&env, &nullifier));
@@ -226,6 +238,9 @@ impl VeilPool {
         root_pool: U256,
         root_repaid: U256,
     ) -> u32 {
+        for v in [&nullifier, &commitment, &root_pool, &root_repaid] {
+            Self::require_canonical(&env, v);
+        }
         // Public signals in snarkjs order: [nullifierOut, commitmentOut, rootPool, rootRepaid].
         let mut pi: Vec<Bn254Fr> = Vec::new(&env);
         pi.push_back(Self::fr(&env, &nullifier));
@@ -255,6 +270,9 @@ impl VeilPool {
         root_liquidated: U256,
         seized: U256,
     ) -> (u32, u32) {
+        for v in [&nullifier, &commitment_liquidator, &commitment_change, &root_pool, &root_liquidated, &seized] {
+            Self::require_canonical(&env, v);
+        }
         // Public signals: [nullifierOut, commitmentLiquidator, commitmentChange, rootPool, rootLiquidated, seized].
         let mut pi: Vec<Bn254Fr> = Vec::new(&env);
         pi.push_back(Self::fr(&env, &nullifier));
@@ -301,6 +319,13 @@ impl VeilPool {
         let _ = env;
         let b: BytesN<32> = v.to_be_bytes().try_into().expect("U256 is 32 bytes");
         Bn254Fr::from_bytes(b)
+    }
+    /// Reject a non-canonical field element (`v >= r`). Mandatory on the nullifier (its single-spend
+    /// key must be 1:1 with the reduced field element the verifier sees) and applied to every field
+    /// input so no non-canonical value reaches the nullifier set, the tree, or a root check. Audit C-01.
+    fn require_canonical(env: &Env, v: &U256) {
+        let r = U256::from_be_bytes(env, &Bytes::from_array(env, &BN254_R));
+        assert!(v < &r, "field element not canonical");
     }
 }
 
@@ -367,7 +392,7 @@ mod spend_test {
     use crate::{StubVault, StubVerifier, VeilPool, VeilPoolClient};
     use soroban_sdk::crypto::bn254::{Bn254G1Affine, Bn254G2Affine};
     use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::{token, Address, BytesN, Env, U256};
+    use soroban_sdk::{token, Address, Bytes, BytesN, Env, U256};
     use veil_verifier::Groth16Proof;
 
     struct Fx<'a> {
@@ -438,6 +463,19 @@ mod spend_test {
         f.pool.lock(&dummy_proof(&f.env), &nf, &U256::from_u32(&f.env, 1), &f.known_root, &U256::from_u32(&f.env, 2));
         // Same nullifier, fresh commitment → must be rejected.
         f.pool.lock(&dummy_proof(&f.env), &nf, &U256::from_u32(&f.env, 3), &f.known_root, &U256::from_u32(&f.env, 4));
+    }
+
+    #[test]
+    #[should_panic(expected = "field element not canonical")]
+    fn lock_rejects_noncanonical_nullifier_double_spend() {
+        // C-01: nf and nf+r are distinct U256 but the SAME BN254 field element, so the identical
+        // proof re-verifies. Rejecting non-canonical inputs closes the double-spend.
+        let f = setup();
+        let nf = U256::from_u32(&f.env, 111);
+        f.pool.lock(&dummy_proof(&f.env), &nf, &U256::from_u32(&f.env, 1), &f.known_root, &U256::from_u32(&f.env, 2));
+        let r = U256::from_be_bytes(&f.env, &Bytes::from_array(&f.env, &crate::BN254_R));
+        let nf_plus_r = nf.add(&r); // non-canonical representative of the same field element
+        f.pool.lock(&dummy_proof(&f.env), &nf_plus_r, &U256::from_u32(&f.env, 3), &f.known_root, &U256::from_u32(&f.env, 4));
     }
 
     #[test]
