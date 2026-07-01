@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "verify:prover": "tsx scripts/verify-borrow-prover.ts"
+    "verify:prover": "tsx scripts/verify-borrow-prover.ts",
+    "verify:lock-prover": "tsx scripts/verify-lock-prover.ts"
   },
   "dependencies": {
     "@stellar/freighter-api": "^6.0.1",

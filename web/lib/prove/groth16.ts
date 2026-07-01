@@ -6,6 +6,7 @@
 // BN254 verifier + `veil-vault.borrow` expect — the same encoding `circom/gen_fixtures.js` used for
 // the Phase-3 on-chain cross-check (G1 = x||y 64B BE; G2 = x.c1||x.c0||y.c1||y.c0 128B BE; Fr 32B BE).
 import type { BorrowWitness } from "./witness";
+import type { LockWitness } from "./lock";
 
 /** Raw snarkjs Groth16 proof (BN254, projective triples). */
 export interface SnarkProof {
@@ -47,6 +48,46 @@ export async function proveBorrow(
   const input = witness as unknown as Record<string, string | string[]>;
   const { proof, publicSignals } = await snarkjs.groth16.fullProve(input, assets.wasm, assets.zkey);
   return { proof: proof as unknown as SnarkProof, publicSignals: publicSignals as string[] };
+}
+
+const LOCK_ASSETS: ProverAssets = {
+  wasm: "/circuits/lock/lock.wasm",
+  zkey: "/circuits/lock/lock.zkey",
+};
+
+/**
+ * Prove a lock statement client-side (same in-process flow as `proveBorrow`). `publicSignals` is the
+ * snarkjs lock order: [nullifierOut, commitmentOut, root, lockId].
+ */
+export async function proveLock(
+  witness: LockWitness,
+  assets: ProverAssets = LOCK_ASSETS,
+): Promise<BorrowProof> {
+  const snarkjs = await import("snarkjs");
+  const input = witness as unknown as Record<string, string | string[]>;
+  const { proof, publicSignals } = await snarkjs.groth16.fullProve(input, assets.wasm, assets.zkey);
+  return { proof: proof as unknown as SnarkProof, publicSignals: publicSignals as string[] };
+}
+
+/** The lock public signals, decoded and named (snarkjs emits outputs first). */
+export interface LockPublicArgs {
+  nullifierOut: bigint;
+  commitmentOut: bigint;
+  root: bigint;
+  lockId: bigint;
+}
+
+/**
+ * Split snarkjs `publicSignals` into the named lock public inputs. `veil-pool.lock` takes
+ * `nullifier`/`commitment`/`root`/`lock_id` as separate U256 args (it burns the nullifier and inserts
+ * the commitment); the verifier checks all four, in this exact order.
+ */
+export function publicSignalsToLockArgs(publicSignals: string[]): LockPublicArgs {
+  if (publicSignals.length !== 4) {
+    throw new Error(`expected 4 lock public signals, got ${publicSignals.length}`);
+  }
+  const [nullifierOut, commitmentOut, root, lockId] = publicSignals.map((s) => BigInt(s));
+  return { nullifierOut, commitmentOut, root, lockId };
 }
 
 /** A BN254 field element as a 32-byte big-endian buffer (the on-chain `Fr` / coordinate encoding). */
