@@ -13,8 +13,10 @@ include "circomlib/circuits/bitify.circom";
 // revealing the amount. The vault (Phase 4) verifies this Groth16 proof, checks `root` is a known
 // pool root, and binds `borrower` to the invoker (anti-replay).
 //
-//   Public : root, threshold, borrower (pass-through) ; positionId, lockHandle (outputs)
 //   Private: amount, blinding, spendPk, lockId, leafIndex, pathElements[levels], loanSecret
+//   Public signals in SNARKJS ORDER (outputs first, then declared public inputs) — the order the
+//   verifier's IC expects and the vault MUST pass:
+//     [0]=positionId  [1]=lockHandle  [2]=root  [3]=threshold  [4]=borrower   (nPublic = 5)
 template Borrow(levels) {
     // --- public ---
     signal input root;

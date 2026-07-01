@@ -25,7 +25,23 @@ fn main() {
                 .unwrap_or_else(|e| panic!("failed to read VK file `{path}`: {e}"));
             vk_rs_from_json(&json)
         }
-        Err(_) => placeholder_vk_rs(),
+        Err(_) => {
+            // Default to the committed BORROW vkey so `cargo test` always exercises the embedded-VK
+            // path (`verify()` + build.rs transcoding) — audit H-01. DEPLOY always sets
+            // VERIFIER_VK_JSON explicitly per circuit; this default is a test convenience only.
+            let manifest = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+            let default = PathBuf::from(&manifest).join("../../circom/keys/borrow.vk.json");
+            if default.exists() {
+                println!(
+                    "cargo:warning=VERIFIER_VK_JSON unset — embedding default BORROW vkey (tests \
+                     only; set VERIFIER_VK_JSON=circom/keys/<circuit>.vk.json for a real deploy)"
+                );
+                println!("cargo:rerun-if-changed={}", default.display());
+                vk_rs_from_json(&fs::read_to_string(&default).expect("read default borrow vkey"))
+            } else {
+                placeholder_vk_rs()
+            }
+        }
     };
     fs::write(out_dir.join("vk.rs"), content).expect("failed to write vk.rs");
 }

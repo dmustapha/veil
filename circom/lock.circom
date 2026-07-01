@@ -14,8 +14,9 @@ include "circomlib/circuits/bitify.circom";
 // note. The AVAILABLE note's key-derived nullifier is published so the pool marks it spent. This is
 // a 1-in/1-out joinsplit (locks the ENTIRE note; no change output).
 //
-//   Public : root, lockId ; nullifierOut, commitmentOut (outputs)
 //   Private: amount, blindingIn, spendPk, nk, leafIndex, pathElements[levels], blindingOut
+//   Public signals in SNARKJS ORDER (outputs first, then declared public inputs):
+//     [0]=nullifierOut  [1]=commitmentOut  [2]=root  [3]=lockId   (nPublic = 4)
 template Lock(levels) {
     // --- public ---
     signal input root;

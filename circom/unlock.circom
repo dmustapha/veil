@@ -15,9 +15,10 @@ include "circomlib/circuits/bitify.circom";
 // structurally and the repay-proof is mandatory, so a borrower can never recover spendable collateral
 // without repaying. In v3 BOTH roots are Soroban Poseidon trees (the pool + the vault's repaid-tree).
 //
-//   Public : rootPool, rootRepaid ; nullifierOut, commitmentOut (outputs)
 //   Private: amount, blindingIn, spendPk, nk, lockId, leafIndex, pathElements[levels], blindingOut,
 //            repaidLeafIndex, repaidPathElements[levels]
+//   Public signals in SNARKJS ORDER (outputs first, then declared public inputs):
+//     [0]=nullifierOut  [1]=commitmentOut  [2]=rootPool  [3]=rootRepaid   (nPublic = 4)
 template Unlock(levels) {
     // --- public ---
     signal input rootPool;

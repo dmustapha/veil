@@ -143,12 +143,30 @@ Findings and dispositions:
   signal as the membership `pathIndices`; seize conservation `seized + change == amount` cannot
   field-overflow.
 
-### Phase-4 vault obligations (the circuits assume these; the vault MUST enforce them)
+### Phase-4 vault obligations (the circuits + verifier assume these; the vault MUST enforce them)
 1. Persist every published nullifier and reject replays (double-spend set).
 2. Verify each public root ∈ its known-root history window (pool / repaid / liquidated).
-3. Use a DISTINCT Groth16 vkey per circuit so a `lock` proof can't be replayed as `unlock`/`seize`.
+3. Deploy ONE verifier per circuit (its own embedded vkey) and route each action's proof to its
+   matching verifier — a `lock` proof must not be checkable against the `unlock` verifier.
 4. `borrow`: assert `borrower == hash(invoker)` (anti-replay) and prevent proof reuse.
 5. Insert each output commitment into the pool tree; range-check `deposit` amounts to `[0, 2^128)`.
+6. Pass public signals in EXACT snarkjs order (outputs first, then declared public inputs) and count.
+   Wrong order is fail-closed (proof rejects), but wrong SEMANTIC binding (reading `borrower` at the
+   wrong index) is not — bind by these named indices:
+   - borrow (5): `[positionId, lockHandle, root, threshold, borrower]`
+   - lock (4):   `[nullifierOut, commitmentOut, root, lockId]`
+   - unlock (4): `[nullifierOut, commitmentOut, rootPool, rootRepaid]`
+   - seize (6):  `[nullifierOut, commitmentLiquidator, commitmentChange, rootPool, rootLiquidated, seized]`
+7. A malformed/off-curve proof TRAPS (reverts the invocation) rather than returning an error — the
+   vault must treat a trapped verify as rejection (no path proceeds after it).
+
+## ⚠️ Trusted-setup security (Groth16)
+The committed verification keys (`keys/*.vk.json`, embedded in `contracts/veil-verifier`) come from a
+**single-party, locally-generated** ceremony — BOTH phase-1 (local powers-of-tau) and phase-2. The
+setup operator holds the toxic waste and could forge proofs, so **this deployment is not sound for
+real funds** — it is a hackathon/testnet demonstration. Per-circuit soundness is intact (independent
+zkey/vkey per circuit). Mainnet requires a public perpetual phase-1 + a multi-party phase-2 with a
+beacon and a published `zkey verify` transcript (see `ceremony.sh`).
 
 ## Trusted-setup smoke (per-circuit, local)
 Phase-2 smoke only (the real per-circuit ceremony is Phase 3). Shared powers-of-tau `ptau/` (bn128,

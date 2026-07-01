@@ -18,10 +18,12 @@ include "circomlib/circuits/bitify.circom";
 // never appears in the output; only the public floor `seized` does. Both roots are Soroban Poseidon
 // trees (pool + vault liquidated-tree).
 //
-//   Public : rootPool, rootLiquidated, seized ; nullifierOut, commitmentLiquidator, commitmentChange
 //   Private: amount, blindingIn, spendPk, nk, lockId, leafIndex, pathElements[levels],
 //            liquidatedLeafIndex, liquidatedPathElements[levels], liquidatorPk, blindingLiquidator,
 //            blindingChange
+//   Public signals in SNARKJS ORDER (outputs first, then declared public inputs):
+//     [0]=nullifierOut [1]=commitmentLiquidator [2]=commitmentChange [3]=rootPool
+//     [4]=rootLiquidated [5]=seized   (nPublic = 6)
 template Seize(levels) {
     // --- public ---
     signal input rootPool;

@@ -76,3 +76,41 @@ fn unlock_proof_verifies_on_soroban() {
 fn seize_proof_verifies_on_soroban() {
     roundtrip(&SEIZE, "seize");
 }
+
+/// Audit H-01: the tests above use a RUNTIME vk from fixtures; the deployed contract instead uses
+/// the build.rs-EMBEDDED vk via `verify()`. build.rs defaults to the BORROW vkey, so assert the
+/// embedded constants byte-match the SDK-validated fixture — a build.rs transcoding bug (endianness,
+/// swapped G2 halves, wrong IC order/count) would fail here instead of shipping silently. Skips if a
+/// non-borrow vkey (or the zero placeholder) was embedded via VERIFIER_VK_JSON.
+#[test]
+fn embedded_vk_matches_borrow_fixture() {
+    if crate::VK_ALPHA_G1 != BORROW.vk_alpha {
+        return; // a different circuit's vkey (or placeholder) is embedded — not this test's target.
+    }
+    assert_eq!(crate::VK_BETA_G2, BORROW.vk_beta, "embedded beta != fixture");
+    assert_eq!(crate::VK_GAMMA_G2, BORROW.vk_gamma, "embedded gamma != fixture");
+    assert_eq!(crate::VK_DELTA_G2, BORROW.vk_delta, "embedded delta != fixture");
+    assert_eq!(crate::VK_IC.len(), BORROW.vk_ic.len(), "embedded IC len != fixture");
+    for (i, (a, b)) in crate::VK_IC.iter().zip(BORROW.vk_ic).enumerate() {
+        assert_eq!(a, b, "embedded IC[{i}] != fixture");
+    }
+}
+
+/// Audit H-01: exercise the actual deployed entry point `verify()` (embedded vk) — a real borrow
+/// proof verifies and a tampered public input is rejected. Runs only when the borrow vk is embedded.
+#[test]
+fn embedded_verify_accepts_borrow_and_rejects_tamper() {
+    if crate::VK_ALPHA_G1 != BORROW.vk_alpha {
+        return;
+    }
+    let env = Env::default();
+    let ok = VeilVerifier::verify(env.clone(), proof(&env, &BORROW), public_inputs(&env, &BORROW));
+    assert_eq!(ok, Ok(true), "embedded verify() must accept a real borrow proof");
+
+    let mut bad = public_inputs(&env, &BORROW);
+    bad.set(0, Bn254Fr::from_bytes(BytesN::from_array(&env, &[0x07u8; 32])));
+    assert!(
+        VeilVerifier::verify(env.clone(), proof(&env, &BORROW), bad).is_err(),
+        "embedded verify() must reject a tampered public input"
+    );
+}
