@@ -1,4 +1,4 @@
-// Generate the BORROW proof for the 6d e2e. Usage: tsx prove-borrow.ts <rootR1> <cAvailable>
+// Generate the BORROW proof for the 6d e2e. Usage: pnpm e2e:prove-borrow <rootR1> <cAvailable>  (VEIL_E2E=1)
 // Prints a single JSON line { proof:{a,b,c hex}, positionId, lockHandle, root, threshold, borrower }
 // for the bash orchestrator to feed into `stellar contract invoke ... borrow`. Proves that the LOCKED
 // note (leaf 1, minted by the lock) of hidden amount ≥ threshold is a member of the live pool root R1.

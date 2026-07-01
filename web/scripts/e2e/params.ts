@@ -6,6 +6,16 @@
 // (cross-checked by the Rust `spend_pk_from_nk` vector and circom/lock_input.json), the merkle
 // siblings are the committed empty-tree zeros (circom/merkle_proof_input.json), and `C_available` is
 // read from the on-chain Deposit event. snarkjs computes every commitment/nullifier in-circuit.
+//
+// ⚠️ GUARD (audit M-01): these are DEMO-ONLY low-entropy openings (nk=5, blindings 1/7, …). A note's
+// nullifier is deterministic in nk and its commitment is H(amount, spendPk, blinding, …), so guessable
+// openings would let an observer brute-force a note off its on-chain commitment. NEVER import this file
+// into the 6e web app — a real note must draw nk/blindings/loanSecret from a CSPRNG
+// (crypto.getRandomValues) reduced into [0, BN254_R), with spendPk = H1(nk, 0x34) derived on-device.
+// The e2e entrypoints set VEIL_E2E=1 (see package.json e2e:* scripts); anything else throws here.
+if (typeof process === "undefined" || process.env.VEIL_E2E !== "1") {
+  throw new Error("params.ts holds e2e demo constants — never import outside the VEIL_E2E harness");
+}
 
 /** nk=5 → spendPk = H1(nk, DS_NK=0x34). Matches circom/lock_input.json + notes::spend_pk_from_nk. */
 export const NK = 5n;

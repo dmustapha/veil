@@ -1,4 +1,4 @@
-// Generate the LOCK proof for the 6d e2e. Usage: tsx prove-lock.ts <rootR0>
+// Generate the LOCK proof for the 6d e2e. Usage: pnpm e2e:prove-lock <rootR0>  (sets VEIL_E2E=1)
 // Prints a single JSON line { proof:{a,b,c hex}, nullifier, commitment, root, lockId } for the bash
 // orchestrator to feed into `stellar contract invoke ... lock`. The witness never leaves this process.
 import { resolve, dirname } from "node:path";

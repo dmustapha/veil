@@ -133,9 +133,10 @@ Circom→Groth16 (BN254) verifiers, one per joinsplit circuit, mirrored from Net
 
 - **borrow** verifier (current, sdk 27.0.0-rc.1 / protocol 27): `CBTSWUY5OME4EDY3YA7OBRXHVMSBZH4MWO4GSGNPR4FAGG36RGQGDMM2`
   - superseded: `CACSCTTX4PYTATZJM5EJEE6TAHRHA5LWCSWNPDAQW5I5GVZND422BEMC` (sdk 26) · `CBW4SZE4YCCVN7GNLUOO2Z2NOUDPALZBNAABAAX3CPLAD7WF3APPPVZU` (sdk 26, overflow-checks)
-- **lock**   verifier: `CDI7H3POM5PMBNV6DCDXB4M4LD63QKF2EIBEBU4I73EOGN66254C6BM5`
-- **unlock** verifier: `CDU7ZXX4NLMH66ZHFDEVQJQCBCOK4VWF7FSTTF6KE2BVJKNAAKNSHXTL`
-- **seize**  verifier: `CAX3KGXJAO5YQ5EJ6EAJRI3NRFFC5CQIZYGNHO22B4ZLHSQGIQXZTUEP`
+- **lock/unlock/seize** verifiers (Phase-3, **sdk 26 — SUPERSEDED** by the P27 set in the "v3 full
+  contract suite" section below, which the deployed pool wires): lock `CDI7H3POM5PMBNV6DCDXB4M4LD63QKF2EIBEBU4I73EOGN66254C6BM5`
+  · unlock `CDU7ZXX4NLMH66ZHFDEVQJQCBCOK4VWF7FSTTF6KE2BVJKNAAKNSHXTL` · seize `CAX3KGXJAO5YQ5EJ6EAJRI3NRFFC5CQIZYGNHO22B4ZLHSQGIQXZTUEP`.
+  **Current (P27): lock `CD4LXCNP…SH6B` · unlock `CDIAVRLO…JSVQ` · seize `CCS6HBA3…FGHU`** (full IDs below).
 
 ### On-chain verification proof (ZK is load-bearing)
 - `borrow.verify(real proof, real public signals)` → **`true`** (on-chain).

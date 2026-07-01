@@ -9,7 +9,9 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "verify:prover": "tsx scripts/verify-borrow-prover.ts",
-    "verify:lock-prover": "tsx scripts/verify-lock-prover.ts"
+    "verify:lock-prover": "tsx scripts/verify-lock-prover.ts",
+    "e2e:prove-lock": "VEIL_E2E=1 tsx scripts/e2e/prove-lock.ts",
+    "e2e:prove-borrow": "VEIL_E2E=1 tsx scripts/e2e/prove-borrow.ts"
   },
   "dependencies": {
     "@stellar/freighter-api": "^6.0.1",
