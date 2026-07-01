@@ -126,6 +126,24 @@ The joinsplit circuits port `guest/core/src/notes.rs` (Groth16, client-side-prov
   == amount`, `amount >= seized`. ~10.5k non-linear. groth16 OK; over-seize (seized > amount) and a
   non-liquidated position (tampered liquidated path) are both unprovable.
 
+## Deposit-from-ETH opening proof (`deposit_from_eth.circom`, Phase 7)
+Binds an AVAILABLE note commitment `C` to a PUBLIC `amount` via a secret opening — the cross-chain
+collateral binding for the relayer-attested Poseidon lock-tree design (a client-side spike measured
+the trustless full-MPT-in-Circom path at ~4.6M constraints / `2^23` ptau / browser-OOM → rejected).
+
+```
+C === NoteCommitment(DS_NOTE_AVAILABLE=0x10, amount, spendPk, blinding, aux=0)
+  Public signals (snarkjs order): [amount, C]   (nPublic = 2)
+  Private: spendPk, blinding
+```
+
+Verified by `VeilEthLock.sol` AT LOCK TIME (snarkjs-exported `DepositFromEthVerifier.sol`), so the
+WETH escrowed on Ethereum provably matches the note spent on Stellar — a user cannot lock `amount`
+WETH yet commit to a larger note (LP insolvency). ~848 non-linear constraints (fits the existing
+`2^15` ptau — no new ceremony). `amount` is `Num2Bits(128)`-bound. Smoke: canonical vector amount=2e18,
+spendPk=2, blinding=1 → `C = 0x01c209ef…8398e10d` (the AVAILABLE note vector) proves+verifies OK; a
+wrong `C` or a mismatched `amount` (lock-less-than-committed) is unprovable (`note.out === C` fails).
+
 ## Phase-2 security review (self + security-auditor subagent)
 Findings and dispositions:
 

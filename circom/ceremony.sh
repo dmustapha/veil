@@ -18,7 +18,7 @@
 #
 # Reproduce: `cd circom && npm i && bash ceremony.sh`  (regenerates <c>.zkey locally + keys/<c>.vk.json)
 set -e
-for c in borrow lock unlock seize; do
+for c in borrow lock unlock seize deposit_from_eth; do
   echo "=== $c ==="
   snarkjs groth16 setup "${c}_test.r1cs" ptau/pot15_final.ptau "/tmp/${c}_0000.zkey"
   snarkjs zkey contribute "/tmp/${c}_0000.zkey" "${c}.zkey" \
