@@ -285,18 +285,12 @@ impl VeilVault {
         borrower.require_auth();
         let cfg = Self::cfg(&env)?;
 
-        // 1. Verify the proof against the public signals in SNARKJS ORDER
-        //    [positionId, lockHandle, root, threshold, borrower]. The borrower field is derived from
-        //    the caller, so a proof made for a different account won't verify (anti-replay). An
-        //    invalid proof or any mismatched public value TRAPS the whole call (fail-closed).
-        let bfield = Self::borrower_field(&env, &borrower);
-        let mut pi: Vec<Bn254Fr> = Vec::new(&env);
-        pi.push_back(Self::fr(&env, &position_id));
-        pi.push_back(Self::fr(&env, &lock_handle));
-        pi.push_back(Self::fr(&env, &root));
-        pi.push_back(Self::fr_u128(&env, threshold));
-        pi.push_back(Self::fr(&env, &bfield));
-        VerifierClient::new(&env, &cfg.borrow_verifier).verify(&proof, &pi);
+        // 1. Verify the proof against the borrow public signals (snarkjs order); an invalid proof or
+        //    any mismatched public value TRAPS the whole call (fail-closed). The borrower field binds
+        //    the proof to the caller (anti-replay).
+        Self::verify_borrow_proof(
+            &env, &cfg.borrow_verifier, &proof, &position_id, &lock_handle, &root, threshold, &borrower,
+        );
 
         // 2. The membership root must be a known veil-pool root (cross-contract single source).
         if !PoolClient::new(&env, &cfg.veil_pool).is_known_root(&root) {
@@ -363,6 +357,145 @@ impl VeilVault {
         Ok(principal)
     }
 
+    /// Private margin call. Under price stress the borrower re-proves — via the SAME deployed borrow
+    /// verifier — that the SAME locked note clears a HIGHER floor `T'`, and raises `Position.floor`
+    /// to `T'`. This defends the position by disclosing a tighter lower bound, never the exact amount.
+    /// Soroban-only: no new disbursement, no re-lock. The raised floor strengthens the liquidation
+    /// predicate. Returns the new floor.
+    pub fn margin(
+        env: Env,
+        proof: Groth16Proof,
+        position_id: U256,
+        lock_handle: U256,
+        root: U256,
+        threshold: u128,
+        borrower: Address,
+    ) -> Result<u128, Error> {
+        borrower.require_auth();
+        let cfg = Self::cfg(&env)?;
+
+        // 1. Verify the higher-threshold proof (same verifier/public-signal shape as borrow; T larger).
+        Self::verify_borrow_proof(
+            &env, &cfg.borrow_verifier, &proof, &position_id, &lock_handle, &root, threshold, &borrower,
+        );
+        // 2. Membership root must be a known veil-pool root.
+        if !PoolClient::new(&env, &cfg.veil_pool).is_known_root(&root) {
+            return Err(Error::UnknownRoot);
+        }
+        // 3. The position must exist, be active, and belong to the caller.
+        let pk = DataKey::Position(position_id);
+        let mut pos: Position = env.storage().persistent().get(&pk).ok_or(Error::NoPosition)?;
+        if pos.status != STATUS_ACTIVE {
+            return Err(Error::AlreadyClosed);
+        }
+        if pos.borrower != borrower {
+            return Err(Error::WrongBorrower);
+        }
+        // 4. Must re-prove the SAME locked note (margin can't swap collateral).
+        if lock_handle != pos.lock_handle {
+            return Err(Error::LockMismatch);
+        }
+        // 5. A margin call only ever TIGHTENS the floor (strictly raises the proven lower bound).
+        if threshold <= pos.floor {
+            return Err(Error::FloorNotRaised);
+        }
+
+        pos.floor = threshold;
+        env.storage().persistent().set(&pk, &pos);
+        Self::bump(&env, &pk);
+        Ok(threshold)
+    }
+
+    /// Repay principal + accrued interest and mark the position REPAID. Appends
+    /// `repaid_leaf(lock_handle)` to the Poseidon repaid-tree → the new `R_sor` the unlock circuit
+    /// proves membership against (so collateral is recoverable ONLY after repayment). Returns the
+    /// amount repaid.
+    pub fn repay(env: Env, position_id: U256) -> Result<i128, Error> {
+        let cfg = Self::cfg(&env)?;
+        let pk = DataKey::Position(position_id);
+        let mut pos: Position = env.storage().persistent().get(&pk).ok_or(Error::NoPosition)?;
+        if pos.status != STATUS_ACTIVE {
+            return Err(Error::AlreadyClosed);
+        }
+        pos.borrower.require_auth();
+
+        let mut pool = Self::pool(&env)?;
+        Self::accrue(&env, &mut pool, cfg.rate_bps);
+        let debt = pos.principal_scaled.checked_mul(pool.borrow_index).expect("ovf") / INDEX_SCALE;
+
+        token::TokenClient::new(&env, &cfg.usdc).transfer(
+            &pos.borrower,
+            &env.current_contract_address(),
+            &debt,
+        );
+
+        pool.total_idle += debt;
+        pool.total_borrowed_scaled -= pos.principal_scaled;
+        pos.status = STATUS_REPAID;
+        let lock_handle = pos.lock_handle.clone();
+        env.storage().persistent().set(&pk, &pos);
+        Self::save_pool(&env, &pool);
+        Self::bump(&env, &pk);
+        Self::append_leaf(&env, DataKey::RepaidTree, tree::repaid_leaf(&env, &lock_handle));
+        Ok(debt)
+    }
+
+    /// Liquidate a defaulted position. Permissionless: any `liquidator` may call, but they must repay
+    /// the debt to the pool (LPs made whole) — in return they recover the locked collateral on-chain
+    /// via the seize proof (worth ≥ the proven floor). Liquidatable iff under-collateralized at the
+    /// proven floor (`floor·price·liq_bps < debt`) OR past the loan term. Marks LIQUIDATED and appends
+    /// `liquidated_leaf(lock_handle)` to `R_liq` — the default-proof the seize circuit folds. Returns
+    /// the debt absorbed.
+    pub fn liquidate(env: Env, position_id: U256, liquidator: Address) -> Result<i128, Error> {
+        let cfg = Self::cfg(&env)?;
+        let pk = DataKey::Position(position_id);
+        let mut pos: Position = env.storage().persistent().get(&pk).ok_or(Error::NoPosition)?;
+        if pos.status != STATUS_ACTIVE {
+            return Err(Error::AlreadyClosed);
+        }
+        liquidator.require_auth();
+
+        let mut pool = Self::pool(&env)?;
+        Self::accrue(&env, &mut pool, cfg.rate_bps);
+        let debt = pos.principal_scaled.checked_mul(pool.borrow_index).expect("ovf") / INDEX_SCALE;
+        if !Self::is_liq(&env, &cfg, &pos, debt) {
+            return Err(Error::NotLiquidatable);
+        }
+
+        token::TokenClient::new(&env, &cfg.usdc).transfer(
+            &liquidator,
+            &env.current_contract_address(),
+            &debt,
+        );
+
+        pool.total_idle += debt;
+        pool.total_borrowed_scaled -= pos.principal_scaled;
+        pos.status = STATUS_LIQUIDATED;
+        let lock_handle = pos.lock_handle.clone();
+        env.storage().persistent().set(&pk, &pos);
+        Self::save_pool(&env, &pool);
+        Self::bump(&env, &pk);
+        Self::append_leaf(&env, DataKey::LiquidatedTree, tree::liquidated_leaf(&env, &lock_handle));
+        Ok(debt)
+    }
+
+    /// Liquidation predicate: under-collateralized at the proven floor OR past the loan term.
+    /// Past-due needs no oracle; the health check needs a FRESH price (a stale/absent price can never
+    /// push a position into liquidation — only leave it un-assessable).
+    fn is_liq(env: &Env, cfg: &Config, pos: &Position, debt: i128) -> bool {
+        if env.ledger().sequence() > pos.due_ledger {
+            return true;
+        }
+        let r = ReflectorClient::new(env, &cfg.reflector);
+        if let Some(px) = r.lastprice(&cfg.reflector_asset) {
+            if env.ledger().timestamp().saturating_sub(px.timestamp) <= MAX_PRICE_AGE_SECS {
+                let liq_value = size_loan(pos.floor, px.price, r.decimals(), cfg.liq_bps);
+                return liq_value < debt;
+            }
+        }
+        false
+    }
+
     // ---- views ----
     pub fn get_position(env: Env, position_id: U256) -> Option<Position> {
         env.storage().persistent().get(&DataKey::Position(position_id))
@@ -381,6 +514,36 @@ impl VeilVault {
     }
     pub fn get_config(env: Env) -> Result<Config, Error> {
         Self::cfg(&env)
+    }
+    /// Current debt (principal + accrued interest) of an active position.
+    pub fn debt_of(env: Env, position_id: U256) -> Result<i128, Error> {
+        let cfg = Self::cfg(&env)?;
+        let pos: Position =
+            env.storage().persistent().get(&DataKey::Position(position_id)).ok_or(Error::NoPosition)?;
+        let mut pool = Self::pool(&env)?;
+        Self::accrue(&env, &mut pool, cfg.rate_bps);
+        Ok(pos.principal_scaled.checked_mul(pool.borrow_index).expect("ovf") / INDEX_SCALE)
+    }
+    /// Read-only liquidation check (false for missing/closed positions or config errors).
+    pub fn is_liquidatable(env: Env, position_id: U256) -> bool {
+        let cfg = match Self::cfg(&env) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        let pos: Position = match env.storage().persistent().get(&DataKey::Position(position_id)) {
+            Some(p) => p,
+            None => return false,
+        };
+        if pos.status != STATUS_ACTIVE {
+            return false;
+        }
+        let mut pool = match Self::pool(&env) {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
+        Self::accrue(&env, &mut pool, cfg.rate_bps);
+        let debt = pos.principal_scaled.checked_mul(pool.borrow_index).expect("ovf") / INDEX_SCALE;
+        Self::is_liq(&env, &cfg, &pos, debt)
     }
 
     /// Current Poseidon repaid-root `R_sor` — the value the unlock circuit's `rootRepaid` public
@@ -434,6 +597,38 @@ impl VeilVault {
         let hu = U256::from_be_bytes(env, &Bytes::from_array(env, &h.to_array()));
         let r = U256::from_be_bytes(env, &Bytes::from_array(env, &BN254_R));
         hu.rem_euclid(&r)
+    }
+    /// Build the borrow public-signal vector in SNARKJS ORDER `[positionId, lockHandle, root,
+    /// threshold, borrower]` and call the deployed borrow verifier. `borrower` is reduced to its
+    /// invoker-bound field element first. TRAPS (reverts) on an invalid proof or mismatched input —
+    /// callers must treat a return as "verified". Shared by `borrow` and `margin`.
+    #[allow(clippy::too_many_arguments)]
+    fn verify_borrow_proof(
+        env: &Env,
+        verifier: &Address,
+        proof: &Groth16Proof,
+        position_id: &U256,
+        lock_handle: &U256,
+        root: &U256,
+        threshold: u128,
+        borrower: &Address,
+    ) {
+        let bfield = Self::borrower_field(env, borrower);
+        let mut pi: Vec<Bn254Fr> = Vec::new(env);
+        pi.push_back(Self::fr(env, position_id));
+        pi.push_back(Self::fr(env, lock_handle));
+        pi.push_back(Self::fr(env, root));
+        pi.push_back(Self::fr_u128(env, threshold));
+        pi.push_back(Self::fr(env, &bfield));
+        VerifierClient::new(env, verifier).verify(proof, &pi);
+    }
+    /// Append a Poseidon leaf to a gating tree (repaid `R_sor` / liquidated `R_liq`) and persist it,
+    /// bumping the instance TTL. The new root lines up with the circom `MerkleProof` for that leaf.
+    fn append_leaf(env: &Env, key: DataKey, leaf: U256) {
+        let mut t: GatingTree = env.storage().instance().get(&key).expect("gating tree");
+        tree::insert(env, &mut t, leaf);
+        env.storage().instance().set(&key, &t);
+        env.storage().instance().extend_ttl(BUMP_THRESHOLD, BUMP_AMOUNT);
     }
     fn save_pool(env: &Env, pool: &Pool) {
         env.storage().instance().set(&DataKey::Pool, pool);

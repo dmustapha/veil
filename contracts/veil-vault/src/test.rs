@@ -385,4 +385,101 @@ mod borrow {
         );
         assert!(r.is_err(), "a reused lock handle must be rejected");
     }
+
+    // ---- margin / repay / liquidate (unit 4) ----
+    use soroban_sdk::testutils::Ledger as _;
+
+    const T: u128 = 1_000_000_000_000_000_000; // 1e18 threshold
+
+    // Open a position and return (position_id, lock_handle, principal).
+    fn open(b: &Bx) -> (U256, U256, i128) {
+        let pid = U256::from_u32(&b.env, 111);
+        let lh = U256::from_u32(&b.env, 222);
+        let principal = b.vault.borrow(&dummy_proof(&b.env), &pid, &lh, &b.root, &T, &b.borrower);
+        (pid, lh, principal)
+    }
+
+    #[test]
+    fn repay_settles_debt_and_appends_repaid_leaf() {
+        let b = setup_borrow();
+        let (pid, _lh, principal) = open(&b);
+        assert_eq!(b.vault.repaid_count(), 0);
+
+        // Same ledger → no interest → debt == principal; the borrower holds exactly that.
+        let repaid = b.vault.repay(&pid);
+        assert_eq!(repaid, principal, "debt with no accrual equals principal");
+        assert_eq!(b.usdc.balance(&b.borrower), 0, "borrower paid the debt back");
+        assert_eq!(b.vault.get_position(&pid).unwrap().status, crate::STATUS_REPAID);
+        // The Poseidon repaid-leaf was appended → the unlock circuit can now prove membership.
+        assert_eq!(b.vault.repaid_count(), 1, "repaid_leaf appended");
+        assert_ne!(b.vault.repaid_root(), b.vault.liquidated_root(), "repaid root advanced");
+    }
+
+    #[test]
+    fn repay_rejects_a_closed_position() {
+        let b = setup_borrow();
+        let (pid, _lh, _p) = open(&b);
+        b.vault.repay(&pid);
+        assert!(b.vault.try_repay(&pid).is_err(), "double repay must be rejected");
+    }
+
+    #[test]
+    fn margin_raises_floor_with_higher_threshold() {
+        let b = setup_borrow();
+        let (pid, lh, _p) = open(&b);
+        assert_eq!(b.vault.get_position(&pid).unwrap().floor, T);
+
+        let higher = T + 500_000_000_000_000_000; // 1.5e18
+        let new_floor = b.vault.margin(&dummy_proof(&b.env), &pid, &lh, &b.root, &higher, &b.borrower);
+        assert_eq!(new_floor, higher);
+        assert_eq!(b.vault.get_position(&pid).unwrap().floor, higher, "floor tightened");
+    }
+
+    #[test]
+    fn margin_rejects_non_raising_threshold() {
+        let b = setup_borrow();
+        let (pid, lh, _p) = open(&b);
+        // Equal or lower threshold must not weaken the proven lower bound.
+        let r = b.vault.try_margin(&dummy_proof(&b.env), &pid, &lh, &b.root, &T, &b.borrower);
+        assert!(r.is_err(), "a non-raising margin must be rejected");
+    }
+
+    #[test]
+    fn margin_rejects_lock_mismatch() {
+        let b = setup_borrow();
+        let (pid, _lh, _p) = open(&b);
+        let other_lock = U256::from_u32(&b.env, 999);
+        let higher = T + 1;
+        let r = b.vault.try_margin(&dummy_proof(&b.env), &pid, &other_lock, &b.root, &higher, &b.borrower);
+        assert!(r.is_err(), "margin can't swap the locked collateral");
+    }
+
+    #[test]
+    fn liquidate_past_due_appends_liquidated_leaf() {
+        let b = setup_borrow();
+        let (pid, _lh, principal) = open(&b);
+
+        // Advance past the loan term → past-due liquidation (no oracle needed).
+        b.env.ledger().with_mut(|l| l.sequence_number += 100_001);
+        assert!(b.vault.is_liquidatable(&pid), "past-due position is liquidatable");
+
+        let liquidator = Address::generate(&b.env);
+        let debt = b.vault.debt_of(&pid);
+        token::StellarAssetClient::new(&b.env, &b.usdc.address).mint(&liquidator, &(principal * 2));
+
+        let absorbed = b.vault.liquidate(&pid, &liquidator);
+        assert_eq!(absorbed, debt, "liquidator repaid the full debt");
+        assert_eq!(b.vault.get_position(&pid).unwrap().status, crate::STATUS_LIQUIDATED);
+        assert_eq!(b.vault.liquidated_count(), 1, "liquidated_leaf appended");
+    }
+
+    #[test]
+    fn liquidate_rejects_a_healthy_position() {
+        let b = setup_borrow();
+        let (pid, _lh, _p) = open(&b);
+        let liquidator = Address::generate(&b.env);
+        // Fresh, over-collateralized, not past due → NotLiquidatable.
+        assert!(!b.vault.is_liquidatable(&pid));
+        assert!(b.vault.try_liquidate(&pid, &liquidator).is_err(), "healthy position must not liquidate");
+    }
 }
