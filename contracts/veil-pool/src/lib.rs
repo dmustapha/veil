@@ -10,6 +10,7 @@ pub mod merkle_with_history;
 pub mod notes;
 pub mod nullifiers;
 pub mod poseidon2;
+mod ttl;
 
 use soroban_sdk::{
     contract, contractevent, contractimpl, contracttype, token, Address, Bytes, Env, U256,
@@ -52,10 +53,13 @@ fn amount_to_field(env: &Env, amount: i128) -> U256 {
 
 #[contractimpl]
 impl VeilPool {
-    /// One-time init: the collateral token + the depth-`levels` note tree.
-    pub fn init(env: Env, token: Address, levels: u32) {
+    /// Deploy-time init: the collateral token + the depth-`levels` note tree. Runs atomically with
+    /// deployment (a constructor), so there is no post-deploy window in which an attacker could
+    /// front-run `init` to pin a malicious collateral token.
+    pub fn __constructor(env: Env, token: Address, levels: u32) {
         env.storage().instance().set(&ConfigKey::Token, &token);
         env.storage().instance().set(&ConfigKey::TotalDeposited, &0i128);
+        env.storage().instance().extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
         MerkleTreeWithHistory::init(&env, levels).expect("init");
     }
 
@@ -69,11 +73,23 @@ impl VeilPool {
         from.require_auth();
         assert!(amount > 0, "amount must be positive");
 
+        // Compute the commitment (field-range checks run here) and record all state effects BEFORE
+        // the external token transfer — checks-effects-interactions.
         let amount_f = amount_to_field(&env, amount);
         let zero = U256::from_u32(&env, 0);
         let commitment =
             note_commitment(&env, DS_NOTE_AVAILABLE, &amount_f, &spend_pk, &blinding, &zero);
 
+        let index = MerkleTreeWithHistory::insert_leaf(&env, commitment.clone()).expect("insert");
+
+        let total: i128 =
+            env.storage().instance().get(&ConfigKey::TotalDeposited).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&ConfigKey::TotalDeposited, &total.checked_add(amount).expect("overflow"));
+        env.storage().instance().extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
+
+        // Interaction last: escrow the collateral.
         let token_addr: Address =
             env.storage().instance().get(&ConfigKey::Token).expect("not initialized");
         token::TokenClient::new(&env, &token_addr).transfer(
@@ -81,12 +97,6 @@ impl VeilPool {
             &env.current_contract_address(),
             &amount,
         );
-
-        let index = MerkleTreeWithHistory::insert_leaf(&env, commitment.clone()).expect("insert");
-
-        let total: i128 =
-            env.storage().instance().get(&ConfigKey::TotalDeposited).unwrap_or(0);
-        env.storage().instance().set(&ConfigKey::TotalDeposited, &(total + amount));
 
         Deposit { index, commitment }.publish(&env);
         index
@@ -107,6 +117,16 @@ impl VeilPool {
         MerkleTreeWithHistory::is_known_root(&env, &root).expect("is_known_root")
     }
 }
+
+/// Minimal storage-host contract for the internal-module tests (tree / nullifier set): they need a
+/// contract context for `env.as_contract`, but not VeilPool's constructor-time tree init.
+#[cfg(test)]
+#[contract]
+pub struct TestHost;
+
+#[cfg(test)]
+#[contractimpl]
+impl TestHost {}
 
 #[cfg(test)]
 mod gate_zero_test {
@@ -230,13 +250,13 @@ mod note_commitment_test {
 #[cfg(test)]
 mod nullifier_test {
     use crate::nullifiers::NullifierSet as N;
-    use crate::VeilPool;
+    use crate::TestHost;
     use soroban_sdk::{Env, U256};
 
     #[test]
     fn nullifier_is_single_spend() {
         let env = Env::default();
-        let id = env.register(VeilPool, ());
+        let id = env.register(TestHost, ());
         let nf = U256::from_u32(&env, 42);
 
         // Fresh nullifier: not spent, spendable once.
@@ -256,7 +276,7 @@ mod nullifier_test {
 mod deposit_test {
     use crate::merkle_with_history::MerkleTreeWithHistory as T;
     use crate::notes::{note_commitment, DS_NOTE_AVAILABLE};
-    use crate::{amount_to_field, VeilPool, VeilPoolClient};
+    use crate::{amount_to_field, TestHost, VeilPool, VeilPoolClient};
     use soroban_sdk::testutils::Address as _;
     use soroban_sdk::{token, Address, Env, U256};
 
@@ -273,9 +293,8 @@ mod deposit_test {
         let coin_admin = token::StellarAssetClient::new(&env, &sac.address());
         coin_admin.mint(&user, &1_000_000i128);
 
-        let id = env.register(VeilPool, ());
+        let id = env.register(VeilPool, (sac.address(), 16u32));
         let pool = VeilPoolClient::new(&env, &id);
-        pool.init(&sac.address(), &16u32);
 
         let amount = 500_000i128;
         let spend_pk = U256::from_u32(&env, 2);
@@ -302,7 +321,7 @@ mod deposit_test {
             &blinding,
             &U256::from_u32(&env, 0),
         );
-        let id2 = env.register(VeilPool, ());
+        let id2 = env.register(TestHost, ());
         env.as_contract(&id2, || T::init(&env, 16).unwrap());
         env.as_contract(&id2, || T::insert_leaf(&env, expected_c.clone()).unwrap());
         let expected_root = env.as_contract(&id2, || T::get_last_root(&env).unwrap());
@@ -317,17 +336,35 @@ mod deposit_test {
         let issuer = Address::generate(&env);
         let user = Address::generate(&env);
         let sac = env.register_stellar_asset_contract_v2(issuer);
-        let id = env.register(VeilPool, ());
+        let id = env.register(VeilPool, (sac.address(), 16u32));
         let pool = VeilPoolClient::new(&env, &id);
-        pool.init(&sac.address(), &16u32);
         pool.deposit(&user, &0i128, &U256::from_u32(&env, 2), &U256::from_u32(&env, 1));
+    }
+
+    #[test]
+    #[should_panic(expected = "BN256 range")]
+    fn deposit_rejects_out_of_range_field_element() {
+        // A spend_pk >= the BN254 modulus can't be a valid circuit input; the field-range guard
+        // fires inside note_commitment BEFORE the token transfer, so the whole deposit reverts and
+        // no collateral moves.
+        let env = Env::default();
+        env.mock_all_auths();
+        let issuer = Address::generate(&env);
+        let user = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(issuer);
+        token::StellarAssetClient::new(&env, &sac.address()).mint(&user, &1_000i128);
+        let id = env.register(VeilPool, (sac.address(), 16u32));
+        let pool = VeilPoolClient::new(&env, &id);
+
+        let too_big = U256::from_be_bytes(&env, &soroban_sdk::Bytes::from_array(&env, &[0xFFu8; 32]));
+        pool.deposit(&user, &500i128, &too_big, &U256::from_u32(&env, 1));
     }
 }
 
 #[cfg(test)]
 mod merkle_test {
     use crate::merkle_with_history::MerkleTreeWithHistory as T;
-    use crate::VeilPool;
+    use crate::TestHost;
     use soroban_sdk::{Env, U256};
 
     // Each `as_contract` is a separate metered invocation (its own footprint budget), mirroring
@@ -335,7 +372,7 @@ mod merkle_test {
     #[test]
     fn tree_init_insert_and_known_root() {
         let env = Env::default();
-        let id = env.register(VeilPool, ());
+        let id = env.register(TestHost, ());
 
         env.as_contract(&id, || T::init(&env, 16).unwrap());
         let empty_root = env.as_contract(&id, || T::get_last_root(&env).unwrap());
@@ -361,7 +398,7 @@ mod merkle_test {
     #[test]
     fn single_insert_advances_index_and_root() {
         let env = Env::default();
-        let id = env.register(VeilPool, ());
+        let id = env.register(TestHost, ());
         env.as_contract(&id, || T::init(&env, 16).unwrap());
         let empty_root = env.as_contract(&id, || T::get_last_root(&env).unwrap());
 
@@ -383,17 +420,44 @@ mod merkle_test {
         let a = U256::from_u32(&env, 111);
         let b = U256::from_u32(&env, 222);
 
-        let id1 = env.register(VeilPool, ());
+        let id1 = env.register(TestHost, ());
         env.as_contract(&id1, || T::init(&env, 16).unwrap());
         env.as_contract(&id1, || T::insert_leaf(&env, a.clone()).unwrap());
         env.as_contract(&id1, || T::insert_leaf(&env, b.clone()).unwrap());
         let root_single = env.as_contract(&id1, || T::get_last_root(&env).unwrap());
 
-        let id2 = env.register(VeilPool, ());
+        let id2 = env.register(TestHost, ());
         env.as_contract(&id2, || T::init(&env, 16).unwrap());
         env.as_contract(&id2, || T::insert_two_leaves(&env, a.clone(), b.clone()).unwrap());
         let root_pair = env.as_contract(&id2, || T::get_last_root(&env).unwrap());
 
         assert_eq!(root_single, root_pair, "two single inserts must equal one pair insert");
+    }
+
+    #[test]
+    fn four_single_inserts_equal_two_pair_inserts() {
+        // Exercises the fold PAST level 1: leaves 2,3 make the level-1 node a right child, so this
+        // covers the deeper right-child path the two-leaf test doesn't reach.
+        let env = Env::default();
+        let v: [u32; 4] = [11, 22, 33, 44];
+
+        let id1 = env.register(TestHost, ());
+        env.as_contract(&id1, || T::init(&env, 16).unwrap());
+        for x in v {
+            env.as_contract(&id1, || T::insert_leaf(&env, U256::from_u32(&env, x)).unwrap());
+        }
+        let root_single = env.as_contract(&id1, || T::get_last_root(&env).unwrap());
+
+        let id2 = env.register(TestHost, ());
+        env.as_contract(&id2, || T::init(&env, 16).unwrap());
+        env.as_contract(&id2, || {
+            T::insert_two_leaves(&env, U256::from_u32(&env, v[0]), U256::from_u32(&env, v[1])).unwrap()
+        });
+        env.as_contract(&id2, || {
+            T::insert_two_leaves(&env, U256::from_u32(&env, v[2]), U256::from_u32(&env, v[3])).unwrap()
+        });
+        let root_pair = env.as_contract(&id2, || T::get_last_root(&env).unwrap());
+
+        assert_eq!(root_single, root_pair, "four single inserts must equal two pair inserts");
     }
 }

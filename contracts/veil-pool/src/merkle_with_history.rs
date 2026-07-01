@@ -11,8 +11,9 @@
 //! Authorization should be handled by the calling main contract before invoking
 //! these functions.
 
-use soroban_sdk::{Env, U256, Vec, contracttype};
+use soroban_sdk::{Env, IntoVal, U256, Val, Vec, contracttype};
 use crate::poseidon2::{get_zeroes, poseidon2_compress};
+use crate::ttl;
 
 /// Number of roots kept in history for proof verification
 const ROOT_HISTORY_SIZE: u32 = 90;
@@ -54,6 +55,18 @@ pub enum MerkleDataKey {
 pub struct MerkleTreeWithHistory;
 
 impl MerkleTreeWithHistory {
+    /// Persistent write + TTL bump — so tree state never archives out from under escrowed
+    /// collateral (see `ttl`). Every production write path (`init`, `insert_leaf`) uses this.
+    fn put<K, V>(env: &Env, key: &K, val: &V)
+    where
+        K: IntoVal<Env, Val>,
+        V: IntoVal<Env, Val>,
+    {
+        let s = env.storage().persistent();
+        s.set(key, val);
+        s.extend_ttl(key, ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
+    }
+
     /// Initialize the Merkle tree with history
     ///
     /// Creates a new Merkle tree with the specified number of levels. The tree
@@ -77,7 +90,7 @@ impl MerkleTreeWithHistory {
         }
 
         // Store levels
-        storage.set(&MerkleDataKey::Levels, &levels);
+        Self::put(env, &MerkleDataKey::Levels, &levels);
 
         // Initialize with precomputed zero hashes
         let zeros: Vec<U256> = get_zeroes(env);
@@ -85,15 +98,15 @@ impl MerkleTreeWithHistory {
         // Initialize filledSubtrees[i] = zeros(i) for each level
         for i in 0..=levels {
             let z: U256 = zeros.get(i).ok_or(Error::NotInitialized)?;
-            storage.set(&MerkleDataKey::FilledSubtree(i), &z);
-            storage.set(&MerkleDataKey::Zeroes(i), &z);
+            Self::put(env, &MerkleDataKey::FilledSubtree(i), &z);
+            Self::put(env, &MerkleDataKey::Zeroes(i), &z);
         }
 
         // Set initial root to zero hash at top level
         let root_0: U256 = zeros.get(levels).ok_or(Error::NotInitialized)?;
-        storage.set(&MerkleDataKey::Root(0), &root_0);
-        storage.set(&MerkleDataKey::CurrentRootIndex, &0u32);
-        storage.set(&MerkleDataKey::NextIndex, &0u64);
+        Self::put(env, &MerkleDataKey::Root(0), &root_0);
+        Self::put(env, &MerkleDataKey::CurrentRootIndex, &0u32);
+        Self::put(env, &MerkleDataKey::NextIndex, &0u64);
 
         Ok(())
     }
@@ -230,7 +243,7 @@ impl MerkleTreeWithHistory {
                     .ok_or(Error::NotInitialized)?;
                 current_hash = poseidon2_compress(env, left, current_hash);
             } else {
-                storage.set(&MerkleDataKey::FilledSubtree(lvl), &current_hash);
+                Self::put(env, &MerkleDataKey::FilledSubtree(lvl), &current_hash);
                 let zero_val: U256 = storage
                     .get(&MerkleDataKey::Zeroes(lvl))
                     .ok_or(Error::NotInitialized)?;
@@ -240,9 +253,10 @@ impl MerkleTreeWithHistory {
         }
 
         root_index = root_index.checked_add(1).ok_or(Error::Overflow)? % ROOT_HISTORY_SIZE;
-        storage.set(&MerkleDataKey::Root(root_index), &current_hash);
-        storage.set(&MerkleDataKey::CurrentRootIndex, &root_index);
-        storage.set(
+        Self::put(env, &MerkleDataKey::Root(root_index), &current_hash);
+        Self::put(env, &MerkleDataKey::CurrentRootIndex, &root_index);
+        Self::put(
+            env,
             &MerkleDataKey::NextIndex,
             &(next_index.checked_add(1).ok_or(Error::Overflow)?),
         );

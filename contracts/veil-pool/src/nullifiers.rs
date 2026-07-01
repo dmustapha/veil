@@ -30,7 +30,11 @@ impl NullifierSet {
         if Self::is_spent(env, nf) {
             return false;
         }
-        env.storage().persistent().set(&NfKey::Spent(nf.clone()), &true);
+        // A spent nullifier must persist indefinitely, so bump its TTL like any other pool state —
+        // an archived nullifier that stalls a spend must be restorable, never silently forgotten.
+        let key = NfKey::Spent(nf.clone());
+        env.storage().persistent().set(&key, &true);
+        crate::ttl::bump(env, &key);
         true
     }
 }
