@@ -79,3 +79,4 @@ circom/**/*.wasm
 circom/**/*.wtns
 circom/**/*.zkey
 circom/ptau/
+contracts/veil-pool/test_snapshots/
