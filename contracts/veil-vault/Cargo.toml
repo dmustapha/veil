@@ -13,6 +13,9 @@ doctest = false
 
 [dependencies]
 soroban-sdk = { version = "26", features = ["hazmat"] }
+# Reuse the proven Poseidon2 primitive + note hashes so the vault's gating trees and the circuits
+# (unlock/seize membership) share ONE hash — no re-derivation.
+veil-pool = { path = "../veil-pool" }
 
 [dev-dependencies]
 soroban-sdk = { version = "26", features = ["hazmat", "testutils"] }

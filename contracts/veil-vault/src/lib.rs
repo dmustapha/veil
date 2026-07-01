@@ -15,9 +15,13 @@
 
 #[cfg(test)]
 mod test;
+mod tree;
+
+use tree::GatingTree;
 
 use soroban_sdk::{
-    contract, contractclient, contracterror, contractimpl, contracttype, token, Address, Env, Symbol,
+    contract, contractclient, contracterror, contractimpl, contracttype, token, Address, BytesN,
+    Env, Symbol, U256,
 };
 
 const DAY_LEDGERS: u32 = 17_280;
@@ -128,9 +132,11 @@ pub struct Position {
 enum DataKey {
     Config,
     Pool,
-    Position(soroban_sdk::BytesN<32>),
-    LockUsed(soroban_sdk::BytesN<32>),
+    Position(BytesN<32>),
+    LockUsed(BytesN<32>),
     Shares(Address),
+    RepaidTree,     // Poseidon repaid-position tree R_sor (unlock circuit proves membership)
+    LiquidatedTree, // Poseidon liquidated-position tree R_liq (seize circuit proves membership)
 }
 
 #[contract]
@@ -167,6 +173,9 @@ impl VeilVault {
             last_accrual: env.ledger().sequence(),
         };
         env.storage().instance().set(&DataKey::Pool, &pool);
+        // Empty Poseidon gating trees; a leaf is appended on each repay / liquidation.
+        env.storage().instance().set(&DataKey::RepaidTree, &tree::empty(&env));
+        env.storage().instance().set(&DataKey::LiquidatedTree, &tree::empty(&env));
         env.storage().instance().extend_ttl(BUMP_THRESHOLD, BUMP_AMOUNT);
     }
 
@@ -247,11 +256,27 @@ impl VeilVault {
     pub fn shares_of(env: Env, who: Address) -> i128 {
         Self::share_balance(&env, &who)
     }
-    pub fn is_lock_used(env: Env, lock_handle: soroban_sdk::BytesN<32>) -> bool {
+    pub fn is_lock_used(env: Env, lock_handle: BytesN<32>) -> bool {
         env.storage().persistent().has(&DataKey::LockUsed(lock_handle))
     }
     pub fn get_config(env: Env) -> Result<Config, Error> {
         Self::cfg(&env)
+    }
+
+    /// Current Poseidon repaid-root `R_sor` — the value the unlock circuit's `rootRepaid` public
+    /// input must equal (read cross-contract by the veil-pool unlock op).
+    pub fn repaid_root(env: Env) -> U256 {
+        Self::repaid_tree(&env).root
+    }
+    /// Current Poseidon liquidated-root `R_liq` — the seize circuit's `rootLiquidated`.
+    pub fn liquidated_root(env: Env) -> U256 {
+        Self::liquidated_tree(&env).root
+    }
+    pub fn repaid_count(env: Env) -> u32 {
+        Self::repaid_tree(&env).next_index
+    }
+    pub fn liquidated_count(env: Env) -> u32 {
+        Self::liquidated_tree(&env).next_index
     }
 
     // ---- internals ----
@@ -260,6 +285,12 @@ impl VeilVault {
     }
     fn pool(env: &Env) -> Result<Pool, Error> {
         env.storage().instance().get(&DataKey::Pool).ok_or(Error::NotInitialized)
+    }
+    fn repaid_tree(env: &Env) -> GatingTree {
+        env.storage().instance().get(&DataKey::RepaidTree).expect("repaid tree")
+    }
+    fn liquidated_tree(env: &Env) -> GatingTree {
+        env.storage().instance().get(&DataKey::LiquidatedTree).expect("liquidated tree")
     }
     fn save_pool(env: &Env, pool: &Pool) {
         env.storage().instance().set(&DataKey::Pool, pool);
