@@ -59,6 +59,36 @@ mod gate_zero_test {
 }
 
 #[cfg(test)]
+mod gate_t3_test {
+    // Extends GATE ZERO to the t=3 permutation (`poseidon2_hash2` = 2 inputs + domain separation),
+    // which the note-commitment chain is built on. Circom `Poseidon2(2)` on inputs [1,2] with
+    // domainSeparation=3 (compile `circom/hash2_test.circom`, witness `circom/hash2_input.json`)
+    // must byte-match the Soroban `poseidon2_hash2(1, 2, Some(3))`. Locks the t=3 primitive before
+    // any commitment code depends on it.
+    use crate::poseidon2::poseidon2_hash2;
+    use soroban_sdk::{Bytes, Env, U256};
+
+    const EXPECTED: [u8; 32] = [
+        0x0a, 0x79, 0x9a, 0x62, 0x1c, 0xac, 0x2c, 0xea, 0x1e, 0xc6, 0xfd, 0xbc, 0xd5, 0xdc, 0x92,
+        0xca, 0xdd, 0x31, 0xc2, 0x10, 0xc9, 0x12, 0xaa, 0xca, 0x00, 0x9a, 0xca, 0x57, 0x8d, 0x21,
+        0x07, 0x68,
+    ];
+
+    #[test]
+    fn soroban_hash2_matches_circom_vector() {
+        let env = Env::default();
+        let out = poseidon2_hash2(
+            &env,
+            U256::from_u32(&env, 1),
+            U256::from_u32(&env, 2),
+            Some(U256::from_u32(&env, 3)),
+        );
+        let expected = U256::from_be_bytes(&env, &Bytes::from_array(&env, &EXPECTED));
+        assert_eq!(out, expected, "Soroban poseidon2_hash2 must byte-match Circom Poseidon2(2)");
+    }
+}
+
+#[cfg(test)]
 mod merkle_test {
     use crate::merkle_with_history::MerkleTreeWithHistory as T;
     use crate::VeilPool;

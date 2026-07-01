@@ -79,4 +79,6 @@ circom/**/*.wasm
 circom/**/*.wtns
 circom/**/*.zkey
 circom/ptau/
+circom/**/*_out.json
+circom/**/*_input.json
 contracts/veil-pool/test_snapshots/

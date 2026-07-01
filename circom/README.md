@@ -22,6 +22,20 @@ Compression rule (both sides): `out = permutation(x)[0] + x[0] (mod p)`.
 Locked from the Circom side (compile `compress_test.circom` + witness on input `{inputs:[1,2]}`).
 The Soroban side (soroban-sdk v26, hazmat Poseidon2) must reproduce it before any pool/circuit code.
 
+## GATE-T3 cross-impl vector (the note-commitment primitive)
+The note commitment is a domain-separated chain of the **t=3** hash `Poseidon2(2)` (2 inputs + a
+`domainSeparation` capacity element → `Permutation(3)`, output `perm.out[0]`, no compression add).
+Soroban's `poseidon2_hash2(a, b, sep)` must byte-match it. `Poseidon2(2)` on inputs `[1, 2]` with
+`domainSeparation = 3`:
+
+```
+0x0a799a621cac2cea1ec6fdbcd5dc92cadd31c210c912aaca009aca578d210768
+= 4737982494702600552753609419126955242994596445692557044681458296415162795880
+```
+
+Locked from the Circom side (compile `hash2_test.circom` + witness on input
+`{inputs:[1,2], domainSeparation:3}`); reproduced on the Soroban side in `gate_t3_test`.
+
 ## Build (artifacts gitignored)
 ```
 circom compress_test.circom --r1cs --wasm --sym -o .
