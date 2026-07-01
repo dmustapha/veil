@@ -70,3 +70,12 @@ VEIL-PRE-SUBMISSION-CRITIQUE.md
 
 # session snapshots (internal)
 docs/context/
+
+# circom build artifacts (v3)
+circom/**/*_js/
+circom/**/*.r1cs
+circom/**/*.sym
+circom/**/*.wasm
+circom/**/*.wtns
+circom/**/*.zkey
+circom/ptau/
