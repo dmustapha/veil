@@ -104,3 +104,22 @@ journal (image_id `0x494bfee7…`, recipient `835ae6da…`).
 - **https://veilzk.vercel.app** (Vercel, Next.js 15). Public, no auth. `/` landing + `/app` live workspace.
   - `/api/state` reads vault config/loan + Reflector price + escrow lock live (retry + cached fallback).
   - `/api/cheat` runs a live tampered-proof borrow simulation → real `Error(Crypto, InvalidInput)` trap.
+
+## v2 — private cross-chain margin lending (testnet deploy 2026-07-01)
+Branch `v2-private-margin-lending`. Real Groth16 image_ids from CI run 28497850128.
+
+**Ethereum (Sepolia, chain 11155111):**
+- VeilPool `0x34F7cBCe7795CCd0F7C73C4e39c3d4474355f754`
+- MockWstETH `0xD3dF2b1C007dD6F8f9feaf4AFBb7914B0286356A`
+- verifier = RiscZeroVerifierRouter `0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187`
+- relayer/deployer `0xe9179cEf73A5Bf26928bC50013A88cdB618b0Caf`
+- image_ids: lock `0xd6856a9b…5d04fcd9` · unlock `0xee487c6b…6e9137f8` · seize `0x73d77cd1…efb8b7a0`
+- anonymity set: 8 decoy deposits; pool root `0xc107b01d…4be568dc`; 5.6 wstETH exactly-backed (balance==totalDeposited)
+
+**Soroban (testnet):**
+- vault-v2 `CCUD2UR24NOCRXZVPZFL532N4UQ5QMDH4GCMJMGYKNINLA7V5D4I6TJ2`
+- init: verifier `CDZRHQMX…5C2L` (Nethermind), borrow image_id `0xa614117f…69e3e9d0`, USDC `CBIELTK6…DAMA`, Reflector `CCYOZJCO…RN63` (Other ETH); ltv 2500 / liq 8000 / min_threshold 1 / term 120960 ledgers / rate 500 bps
+- add_root `c107b01d…` (Ethereum pool root known); lp_deposit 10 USDC (total_assets 100000000)
+- admin veil-spike `GABHHKTQ…FXIF`
+
+Key txs: vault upload `f534b1b5`, deploy `f554a1f9`, init `8433aa4c`, add_root `d2042913`, lp_deposit `6e358361`.
