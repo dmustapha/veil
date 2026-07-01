@@ -112,6 +112,13 @@ The joinsplit circuits port `guest/core/src/notes.rs` (Groth16, client-side-prov
   of the SAME amount bound to lockId. Value conserved structurally (one `amount` feeds both
   commitments → no inflation possible). ~5.4k non-linear. groth16 OK; tampered membership unprovable.
 
+- **`unlock.circom`** — port of `verify_unlock`. Public: rootPool, rootRepaid; outputs nullifierOut,
+  commitmentOut. Spends a LOCKED note (membership + nullifier) → mints an AVAILABLE note of the SAME
+  amount, GATED on the repay-proof: `repaid_leaf(lock_handle(lockId))` must be a member of the
+  repaid-tree root. Both roots are Soroban Poseidon trees. ~9.4k non-linear. groth16 OK; tampering
+  EITHER the pool path or the repaid path is unprovable (no collateral recovery without repay — the
+  core invariant).
+
 ## Trusted-setup smoke (per-circuit, local)
 Phase-2 smoke only (the real per-circuit ceremony is Phase 3). Shared powers-of-tau `ptau/` (bn128,
 2^15) → per-circuit `groth16 setup` → `prove` → `verify`. ptau/zkey/proof/public/vkey all gitignored.
