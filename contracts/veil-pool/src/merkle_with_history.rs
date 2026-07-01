@@ -190,6 +190,66 @@ impl MerkleTreeWithHistory {
         ))
     }
 
+    /// Insert a SINGLE leaf into the tree, returning the index it was inserted at.
+    ///
+    /// The canonical Tornado incremental insert, folding from level 0. Veil inserts one commitment
+    /// per deposit / lock / unlock (and two per seize, as two calls) — unlike the 2-out UTXO model's
+    /// `insert_two_leaves`. Two sequential `insert_leaf` calls yield the same root as one
+    /// `insert_two_leaves` of the same pair (see `single_insert_twice_equals_pair_insert`).
+    ///
+    /// ⚠️ Do NOT mix `insert_leaf` and `insert_two_leaves` on the same tree: the pair variant folds
+    /// from level 1 and never writes `FilledSubtree(0)`, so mixing corrupts the incremental state.
+    /// A VeilPool tree uses `insert_leaf` exclusively.
+    pub fn insert_leaf(env: &Env, leaf: U256) -> Result<u32, Error> {
+        let storage = env.storage().persistent();
+
+        let levels: u32 = storage
+            .get(&MerkleDataKey::Levels)
+            .ok_or(Error::NotInitialized)?;
+        let next_index: u64 = storage
+            .get(&MerkleDataKey::NextIndex)
+            .ok_or(Error::NotInitialized)?;
+        let mut root_index: u32 = storage
+            .get(&MerkleDataKey::CurrentRootIndex)
+            .ok_or(Error::NotInitialized)?;
+        let max_leaves = 1u64.checked_shl(levels).ok_or(Error::WrongLevels)?;
+
+        if next_index.checked_add(1).ok_or(Error::Overflow)? > max_leaves {
+            return Err(Error::MerkleTreeFull);
+        }
+
+        // Fold the leaf up to the root, mixing with the stored left sibling (odd index) or the
+        // level's zero hash (even index), and recording the left sibling for the next insertion.
+        let mut current_hash = leaf;
+        let mut current_index = next_index;
+        for lvl in 0..levels {
+            let is_right = current_index & 1 == 1;
+            if is_right {
+                let left: U256 = storage
+                    .get(&MerkleDataKey::FilledSubtree(lvl))
+                    .ok_or(Error::NotInitialized)?;
+                current_hash = poseidon2_compress(env, left, current_hash);
+            } else {
+                storage.set(&MerkleDataKey::FilledSubtree(lvl), &current_hash);
+                let zero_val: U256 = storage
+                    .get(&MerkleDataKey::Zeroes(lvl))
+                    .ok_or(Error::NotInitialized)?;
+                current_hash = poseidon2_compress(env, current_hash, zero_val);
+            }
+            current_index >>= 1;
+        }
+
+        root_index = root_index.checked_add(1).ok_or(Error::Overflow)? % ROOT_HISTORY_SIZE;
+        storage.set(&MerkleDataKey::Root(root_index), &current_hash);
+        storage.set(&MerkleDataKey::CurrentRootIndex, &root_index);
+        storage.set(
+            &MerkleDataKey::NextIndex,
+            &(next_index.checked_add(1).ok_or(Error::Overflow)?),
+        );
+
+        u32::try_from(next_index).map_err(|_| Error::MerkleTreeFull)
+    }
+
     /// Check if a root exists in the recent history
     ///
     /// Searches the root history ring buffer to verify if a given root is

@@ -190,4 +190,43 @@ mod merkle_test {
         // A never-seen root is not known.
         assert!(!env.as_contract(&id, || T::is_known_root(&env, &U256::from_u32(&env, 999999)).unwrap()));
     }
+
+    #[test]
+    fn single_insert_advances_index_and_root() {
+        let env = Env::default();
+        let id = env.register(VeilPool, ());
+        env.as_contract(&id, || T::init(&env, 16).unwrap());
+        let empty_root = env.as_contract(&id, || T::get_last_root(&env).unwrap());
+
+        let i0 = env.as_contract(&id, || T::insert_leaf(&env, U256::from_u32(&env, 111)).unwrap());
+        assert_eq!(i0, 0, "first leaf lands at index 0");
+        let root0 = env.as_contract(&id, || T::get_last_root(&env).unwrap());
+        assert!(root0 != empty_root, "insert must advance the root");
+        assert!(env.as_contract(&id, || T::is_known_root(&env, &root0).unwrap()));
+
+        let i1 = env.as_contract(&id, || T::insert_leaf(&env, U256::from_u32(&env, 222)).unwrap());
+        assert_eq!(i1, 1, "second leaf lands at index 1");
+    }
+
+    #[test]
+    fn single_insert_twice_equals_pair_insert() {
+        // Cross-checks the single-leaf fold against the mirrored Nethermind pair-insert: inserting
+        // a then b one-at-a-time must reach the exact same root as one insert_two_leaves(a, b).
+        let env = Env::default();
+        let a = U256::from_u32(&env, 111);
+        let b = U256::from_u32(&env, 222);
+
+        let id1 = env.register(VeilPool, ());
+        env.as_contract(&id1, || T::init(&env, 16).unwrap());
+        env.as_contract(&id1, || T::insert_leaf(&env, a.clone()).unwrap());
+        env.as_contract(&id1, || T::insert_leaf(&env, b.clone()).unwrap());
+        let root_single = env.as_contract(&id1, || T::get_last_root(&env).unwrap());
+
+        let id2 = env.register(VeilPool, ());
+        env.as_contract(&id2, || T::init(&env, 16).unwrap());
+        env.as_contract(&id2, || T::insert_two_leaves(&env, a.clone(), b.clone()).unwrap());
+        let root_pair = env.as_contract(&id2, || T::get_last_root(&env).unwrap());
+
+        assert_eq!(root_single, root_pair, "two single inserts must equal one pair insert");
+    }
 }
