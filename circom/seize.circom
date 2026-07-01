@@ -52,6 +52,13 @@ template Seize(levels) {
     component seizedBits = Num2Bits(128);
     seizedBits.in <== seized;
 
+    // Bind the nullifier key to the committed note: spendPk == H1(nk, DS_NK) — else nk is free and one
+    // note yields unlimited nullifiers (double-spend / unbounded seize; audit C-01).
+    component nkBind = DomainHash1();
+    nkBind.x <== nk;
+    nkBind.domainSep <== 52; // DS_NK (0x34)
+    nkBind.out === spendPk;
+
     // 1. Recompute the LOCKED input note (aux = lockId).
     component cin = NoteCommitment();
     cin.domainSep <== 17; // DS_NOTE_LOCKED (0x11)

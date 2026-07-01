@@ -299,11 +299,29 @@ mod domain_hash_test {
     // liquidated_leaf on-chain and the unlock/seize circuits prove their membership, so a divergence
     // silently breaks those flows. circom `DomainHash1` (compile `circom/domain_hash_test.circom`),
     // locked in circom/README.md.
-    use crate::notes::{lock_handle, liquidated_leaf, position_id, repaid_leaf};
+    use crate::notes::{lock_handle, liquidated_leaf, position_id, repaid_leaf, spend_pk_from_nk};
     use soroban_sdk::{Bytes, Env, U256};
 
     fn be(env: &Env, h: [u8; 32]) -> U256 {
         U256::from_be_bytes(env, &Bytes::from_array(env, &h))
+    }
+
+    #[test]
+    fn spend_pk_from_nk_matches_circom_vector() {
+        // The nk→spendPk binding that closes audit C-01 (a note commits spendPk = H1(nk, DS_NK), and
+        // the spend circuits constrain it, so one note determines exactly one nullifier). Soroban
+        // `spend_pk_from_nk(5)` must byte-match circom DomainHash1(5, 0x34) — the spend circuits'
+        // `nkBind.out === spendPk` uses this exact derivation.
+        let env = Env::default();
+        assert_eq!(
+            spend_pk_from_nk(&env, &U256::from_u32(&env, 5)),
+            be(&env, [
+                0x06, 0x8b, 0x44, 0xd9, 0xb0, 0x58, 0x57, 0xa1, 0xa8, 0x42, 0x7e, 0x25, 0x06, 0x86,
+                0x86, 0xa0, 0x01, 0xed, 0x9b, 0x8d, 0xa5, 0x0f, 0xe9, 0x1e, 0x97, 0xfd, 0x70, 0x2d,
+                0x59, 0x9b, 0xa0, 0xb2,
+            ]),
+            "spend_pk_from_nk must match circom DomainHash1(nk, DS_NK)"
+        );
     }
 
     #[test]

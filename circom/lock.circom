@@ -3,6 +3,8 @@ pragma circom 2.2.2;
 include "note_commitment.circom";
 include "merkle_proof.circom";
 include "nullifier.circom";
+include "domain_hash.circom";
+include "circomlib/circuits/bitify.circom";
 
 // Veil v3 LOCK joinsplit — client-side-provable port of guest/core/src/notes.rs::verify_lock.
 //
@@ -29,6 +31,17 @@ template Lock(levels) {
     // --- public outputs ---
     signal output nullifierOut;
     signal output commitmentOut;
+
+    // 0. Bind the nullifier key to the committed note: spendPk == H1(nk, DS_NK). Without this, nk is
+    //    a free witness and one note yields unlimited distinct nullifiers → double-spend / unbounded
+    //    mint / pool insolvency (audit C-01). Range-bound amount before it enters commitments (M-02).
+    component nkBind = DomainHash1();
+    nkBind.x <== nk;
+    nkBind.domainSep <== 52; // DS_NK (0x34)
+    nkBind.out === spendPk;
+
+    component amountBits = Num2Bits(128);
+    amountBits.in <== amount;
 
     // 1. Recompute the AVAILABLE input note (aux = 0).
     component cin = NoteCommitment();

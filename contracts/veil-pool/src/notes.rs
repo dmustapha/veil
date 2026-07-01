@@ -22,6 +22,7 @@ pub const DS_POS: u32 = 0x30; // position_id
 pub const DS_LOCK: u32 = 0x31; // lock_handle
 pub const DS_REPAID: u32 = 0x32; // repaid_leaf
 pub const DS_LIQUIDATED: u32 = 0x33; // liquidated_leaf
+pub const DS_NK: u32 = 0x34; // spend-key ← nullifier-key binding (see `spend_pk_from_nk`)
 
 /// Single-input domain hash `H1(x, ds) = poseidon2_hash2(x, 0, ds)` — the Poseidon2 port of v2's
 /// `SHA256(TAG ‖ x)`. Reuses the GATE-T3-locked primitive; mirrors circom `DomainHash1`.
@@ -75,6 +76,18 @@ pub fn note_commitment(
     let h1 = poseidon2_hash2(env, amount.clone(), spend_pk.clone(), Some(ds.clone()));
     let h2 = poseidon2_hash2(env, h1, blinding.clone(), Some(ds.clone()));
     poseidon2_hash2(env, h2, aux.clone(), Some(ds))
+}
+
+/// Derive a note's spend public key from its nullifier key: `spendPk = H1(nk, DS_NK)`.
+///
+/// This binds the (otherwise free) nullifier key into the committed note: because the note commits
+/// `spendPk`, and the spend circuits (lock/unlock/seize) constrain `spendPk == H1(nk, DS_NK)`, the
+/// committed note determines EXACTLY ONE valid `nk` — hence exactly one nullifier. Without it, `nk`
+/// is unconstrained and one note yields unlimited nullifiers (double-spend / unbounded mint /
+/// insolvency; audit C-01). The note client derives `spendPk` this way at deposit/mint time; the
+/// deposit path itself stays key-agnostic (it just escrows against whatever `spendPk` it is given).
+pub fn spend_pk_from_nk(env: &Env, nk: &U256) -> U256 {
+    domain_hash1(env, nk, DS_NK)
 }
 
 /// Key-derived, Penumbra-style nullifier — the client-side-provable port of v2's

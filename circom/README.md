@@ -126,6 +126,30 @@ The joinsplit circuits port `guest/core/src/notes.rs` (Groth16, client-side-prov
   == amount`, `amount >= seized`. ~10.5k non-linear. groth16 OK; over-seize (seized > amount) and a
   non-liquidated position (tampered liquidated path) are both unprovable.
 
+## Phase-2 security review (self + security-auditor subagent)
+Findings and dispositions:
+
+- **C-01 (CRITICAL, FIXED)** — `nk` was a free witness the note never bound, so one note could yield
+  unlimited distinct nullifiers → double-spend / unbounded mint / insolvency. **Fix:** the note's
+  `spendPk` is now the nullifier-key commitment, `spendPk = H1(nk, DS_NK=0x34)` (`notes::spend_pk_from_nk`,
+  cross-vector `spend_pk_from_nk_matches_circom_vector`), and each spend circuit constrains
+  `nkBind.out === spendPk`. A note now determines exactly one `nk` → one nullifier; a `spendPk ≠ H1(nk)`
+  witness is unprovable. Deposits stay key-agnostic (the client derives `spendPk` this way).
+- **M-02 (MEDIUM, FIXED)** — `lock`/`unlock` copied `amount` into output commitments without a range
+  check. Added `Num2Bits(128)` on `amount` in both (borrow/seize already had it). Defense-in-depth
+  against a field-wrapping amount faking conservation.
+- **L-01/L-02/L-03/L-04 (confirmed sound)** — `borrower` is bound by being a Groth16 public input;
+  domain tags 0x10/0x11/0x20/0x30–0x34 are collision-free; the nullifier's `leafIndex` is the same
+  signal as the membership `pathIndices`; seize conservation `seized + change == amount` cannot
+  field-overflow.
+
+### Phase-4 vault obligations (the circuits assume these; the vault MUST enforce them)
+1. Persist every published nullifier and reject replays (double-spend set).
+2. Verify each public root ∈ its known-root history window (pool / repaid / liquidated).
+3. Use a DISTINCT Groth16 vkey per circuit so a `lock` proof can't be replayed as `unlock`/`seize`.
+4. `borrow`: assert `borrower == hash(invoker)` (anti-replay) and prevent proof reuse.
+5. Insert each output commitment into the pool tree; range-check `deposit` amounts to `[0, 2^128)`.
+
 ## Trusted-setup smoke (per-circuit, local)
 Phase-2 smoke only (the real per-circuit ceremony is Phase 3). Shared powers-of-tau `ptau/` (bn128,
 2^15) → per-circuit `groth16 setup` → `prove` → `verify`. ptau/zkey/proof/public/vkey all gitignored.

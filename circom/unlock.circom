@@ -4,6 +4,7 @@ include "note_commitment.circom";
 include "merkle_proof.circom";
 include "nullifier.circom";
 include "domain_hash.circom";
+include "circomlib/circuits/bitify.circom";
 
 // Veil v3 UNLOCK joinsplit — client-side-provable port of guest/core/src/notes.rs::verify_unlock.
 //
@@ -35,6 +36,15 @@ template Unlock(levels) {
     // --- public outputs ---
     signal output nullifierOut;
     signal output commitmentOut;
+
+    // 0. Bind the nullifier key to the committed note (audit C-01) + range-bound amount (M-02).
+    component nkBind = DomainHash1();
+    nkBind.x <== nk;
+    nkBind.domainSep <== 52; // DS_NK (0x34)
+    nkBind.out === spendPk;
+
+    component amountBits = Num2Bits(128);
+    amountBits.in <== amount;
 
     // 1. Recompute the LOCKED input note (aux = lockId).
     component cin = NoteCommitment();
