@@ -7,6 +7,7 @@
 #![no_std]
 mod constants;
 pub mod merkle_with_history;
+pub mod notes;
 pub mod poseidon2;
 
 use soroban_sdk::{contract, contractimpl, Env, U256};
@@ -85,6 +86,74 @@ mod gate_t3_test {
         );
         let expected = U256::from_be_bytes(&env, &Bytes::from_array(&env, &EXPECTED));
         assert_eq!(out, expected, "Soroban poseidon2_hash2 must byte-match Circom Poseidon2(2)");
+    }
+}
+
+#[cfg(test)]
+mod note_commitment_test {
+    // Cross-impl vector for the note commitment. circom `NoteCommitment` on a LOCKED note
+    // (ds=0x11, amount=2e18, spendPk=2, blinding=1, aux=3) — compile `circom/note_commitment_test.circom`,
+    // witness `circom/note_commitment_input.json`; locked in circom/README.md — must byte-match the
+    // Soroban `note_commitment`. If the field order or domain-separation chain drifts, an on-chain
+    // deposit leaf won't be provable by the browser circuit.
+    use crate::notes::{note_commitment, DS_NOTE_AVAILABLE, DS_NOTE_LOCKED};
+    use soroban_sdk::{Bytes, Env, U256};
+
+    // LOCKED: ds=0x11, amount=2e18, spendPk=2, blinding=1, aux=3.
+    const EXPECTED_LOCKED: [u8; 32] = [
+        0x1c, 0x74, 0x41, 0xb2, 0xdd, 0x96, 0x4a, 0x0b, 0x1f, 0x0f, 0x22, 0xdc, 0x59, 0x03, 0x51,
+        0xce, 0xd0, 0x08, 0x2c, 0x6e, 0xdf, 0x10, 0xf7, 0xcb, 0xe2, 0x87, 0x1d, 0x0c, 0x29, 0x11,
+        0x2f, 0x9a,
+    ];
+    // AVAILABLE (the deposit-note shape): ds=0x10, amount=2e18, spendPk=2, blinding=1, aux=0.
+    const EXPECTED_AVAILABLE: [u8; 32] = [
+        0x01, 0xc2, 0x09, 0xef, 0x09, 0xac, 0xd7, 0xa1, 0x81, 0xe1, 0x81, 0xb9, 0xf7, 0xe8, 0x9c,
+        0xb7, 0xd5, 0x0f, 0x20, 0xae, 0xd9, 0x53, 0x45, 0xd0, 0x61, 0xc9, 0x92, 0x9a, 0x83, 0x98,
+        0xe1, 0x0d,
+    ];
+
+    fn u128_to_u256(env: &Env, v: u128) -> U256 {
+        let mut b = [0u8; 32];
+        b[16..].copy_from_slice(&v.to_be_bytes());
+        U256::from_be_bytes(env, &Bytes::from_array(env, &b))
+    }
+
+    #[test]
+    fn soroban_note_commitment_matches_circom_vector() {
+        let env = Env::default();
+        let amount = u128_to_u256(&env, 2_000_000_000_000_000_000);
+        let spend_pk = U256::from_u32(&env, 2);
+        let blinding = U256::from_u32(&env, 1);
+        let aux = U256::from_u32(&env, 3);
+        let c = note_commitment(&env, DS_NOTE_LOCKED, &amount, &spend_pk, &blinding, &aux);
+        let expected = U256::from_be_bytes(&env, &Bytes::from_array(&env, &EXPECTED_LOCKED));
+        assert_eq!(c, expected, "note commitment must byte-match circom NoteCommitment");
+    }
+
+    #[test]
+    fn soroban_available_commitment_matches_circom_vector() {
+        let env = Env::default();
+        let amount = u128_to_u256(&env, 2_000_000_000_000_000_000);
+        let spend_pk = U256::from_u32(&env, 2);
+        let blinding = U256::from_u32(&env, 1);
+        let aux = U256::from_u32(&env, 0);
+        let c = note_commitment(&env, DS_NOTE_AVAILABLE, &amount, &spend_pk, &blinding, &aux);
+        let expected = U256::from_be_bytes(&env, &Bytes::from_array(&env, &EXPECTED_AVAILABLE));
+        assert_eq!(c, expected, "AVAILABLE commitment must byte-match circom NoteCommitment");
+    }
+
+    #[test]
+    fn available_and_locked_domains_are_separated() {
+        // The domain tag makes a LOCKED note distinct from an AVAILABLE note of the SAME opening —
+        // v2's `domain` byte, now enforced by the whole chain's separation constant.
+        let env = Env::default();
+        let amount = u128_to_u256(&env, 1_000);
+        let pk = U256::from_u32(&env, 7);
+        let b = U256::from_u32(&env, 9);
+        let zero = U256::from_u32(&env, 0);
+        let avail = note_commitment(&env, DS_NOTE_AVAILABLE, &amount, &pk, &b, &zero);
+        let locked = note_commitment(&env, DS_NOTE_LOCKED, &amount, &pk, &b, &zero);
+        assert!(avail != locked, "domain separation must distinguish AVAILABLE from LOCKED");
     }
 }
 

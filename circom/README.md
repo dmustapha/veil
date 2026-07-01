@@ -36,6 +36,25 @@ Soroban's `poseidon2_hash2(a, b, sep)` must byte-match it. `Poseidon2(2)` on inp
 Locked from the Circom side (compile `hash2_test.circom` + witness on input
 `{inputs:[1,2], domainSeparation:3}`); reproduced on the Soroban side in `gate_t3_test`.
 
+## Note commitment (`note_commitment.circom`)
+Port of v2's SHA-256 `note_commitment` to a domain-separated chain of `Poseidon2(2)`:
+
+```
+C = H( H( H(amount, spendPk, ds), blinding, ds), aux, ds )      H = Poseidon2(2)
+ds = DS_NOTE_AVAILABLE (0x10) | DS_NOTE_LOCKED (0x11)           aux = lockId (0 for AVAILABLE)
+```
+
+The note DOMAIN (v2's `domain` byte) is carried by `ds`; joinsplit circuits wire it to a fixed
+constant per note role. Cross-impl vectors (compile `note_commitment_test.circom`, witness
+`note_commitment_input.json`; reproduced on Soroban in `note_commitment_test`):
+
+```
+AVAILABLE  ds=0x10, amount=2e18, spendPk=2, blinding=1, aux=0
+  = 0x01c209ef09acd7a181e181b9f7e89cb7d50f20aed95345d061c9929a8398e10d
+LOCKED     ds=0x11, amount=2e18, spendPk=2, blinding=1, aux=3
+  = 0x1c7441b2dd964a0b1f0f22dc590351ced0082c6edf10f7cbe2871d0c29112f9a
+```
+
 ## Build (artifacts gitignored)
 ```
 circom compress_test.circom --r1cs --wasm --sym -o .
