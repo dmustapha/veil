@@ -71,11 +71,22 @@ export function buildBorrowWitness(
   if (path.pathElements.length !== TREE_DEPTH) {
     throw new Error(`pathElements must be depth ${TREE_DEPTH}, got ${path.pathElements.length}`);
   }
+  if (path.leafIndex < 0n || path.leafIndex >= 1n << BigInt(TREE_DEPTH)) {
+    throw new Error(`leafIndex must be in [0, 2^${TREE_DEPTH})`);
+  }
   if (note.amount < 0n || note.amount >= MAX_U128 || threshold < 0n || threshold >= MAX_U128) {
     throw new Error("amount and threshold must be in [0, 2^128)");
   }
   if (note.amount < threshold) {
     throw new Error("note amount is below the threshold — the borrow proof would be unprovable");
+  }
+  // Every field-valued signal must be a canonical BN254 element, else snarkjs fails deep in witness
+  // generation with an opaque error instead of this clear on-device throw (audit L-01).
+  for (const [name, val] of [
+    ["blinding", note.blinding], ["spendPk", note.spendPk], ["lockId", note.lockId],
+    ["loanSecret", note.loanSecret], ["root", path.root], ...path.pathElements.map((e, i) => [`pathElements[${i}]`, e] as const),
+  ] as const) {
+    if (val < 0n || val >= BN254_R) throw new Error(`${name} is not a canonical BN254 field element`);
   }
   return {
     root: path.root.toString(),

@@ -20,7 +20,7 @@ import {
   scValToNative,
   xdr,
 } from "@stellar/stellar-sdk";
-import { buildBorrowWitness, type MerklePath, type Note } from "../lib/prove/witness";
+import { borrowerField, buildBorrowWitness, type MerklePath, type Note } from "../lib/prove/witness";
 import {
   proveBorrow,
   publicSignalsToFieldBytes,
@@ -66,7 +66,18 @@ function toVerifyArgs(proof: Parameters<typeof toSorobanProof>[0], publicSignals
   return { proofScVal, publicScVal };
 }
 
+// Cross-impl lock (audit H-01): borrowerField must equal the on-chain borrower_field for this exact
+// strkey. The SAME vector is asserted in contracts/veil-vault/src/test.rs. If either side drifts,
+// real borrows break (the vault re-derives borrower_field and asserts equality).
+const BORROWER_VECTOR =
+  15637106958901504754331470705993550837370540567027527858459923834990562324508n;
+
 async function main() {
+  if (borrowerField(SOURCE) !== BORROWER_VECTOR) {
+    fail("borrowerField diverged from the on-chain borrower_field cross-vector");
+  }
+  console.log("• borrowerField == on-chain borrower_field (cross-vector locked)");
+
   // 1. Build the witness from the canonical (Phase-3, on-chain-verified) note vector, but via the
   //    real client modules — including a real Stellar strkey through borrowerField.
   const v = JSON.parse(readFileSync(CANONICAL, "utf8"));

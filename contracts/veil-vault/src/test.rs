@@ -124,6 +124,37 @@ fn constructor_rejects_ltv_above_liq() {
     );
 }
 
+#[test]
+fn borrower_field_matches_ts_prover_cross_vector() {
+    // Cross-impl lock (audit H-01): the browser prover (web/lib/prove/witness.ts `borrowerField`)
+    // must produce the SAME field element as the on-chain `borrower_field` for a fixed strkey — else
+    // a client proof's `borrower` public signal won't match what the vault reconstructs and every
+    // real borrow fails. This exact vector is pinned in web/scripts/verify-borrow-prover.ts.
+    use soroban_sdk::{Bytes, String as SorobanString, U256};
+    let env = Env::default();
+    let addr = Address::from_string(&SorobanString::from_str(
+        &env,
+        "GABHHKTQVGUQPZMXYJIP6OESTUS6QQA3AICEQI77B4FORUW4CPIVFXIF",
+    ));
+    // keccak256(strkey) mod r = 0x229249f5…6717301c (== TS borrowerField for the same strkey).
+    let expected = U256::from_be_bytes(
+        &env,
+        &Bytes::from_array(
+            &env,
+            &[
+                0x22, 0x92, 0x49, 0xf5, 0x1b, 0xf0, 0xf4, 0x05, 0x45, 0x3a, 0x01, 0xfe, 0xbb, 0x96,
+                0xc2, 0x06, 0x1d, 0x68, 0x17, 0x83, 0x67, 0xf5, 0xd5, 0xfd, 0x0a, 0xf5, 0xa8, 0x77,
+                0x67, 0x17, 0x30, 0x1c,
+            ],
+        ),
+    );
+    assert_eq!(
+        VeilVault::borrower_field(&env, &addr),
+        expected,
+        "TS borrowerField must equal on-chain borrower_field for the same strkey",
+    );
+}
+
 // ---- Poseidon gating trees (unit 2) ----
 
 mod gating_tree {
