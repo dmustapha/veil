@@ -107,6 +107,11 @@ The joinsplit circuits port `guest/core/src/notes.rs` (Groth16, client-side-prov
   ~5.1k non-linear constraints. groth16 prove/verify **OK**; a below-threshold amount is unprovable
   (witness fails the `amount ≥ threshold` constraint — the ZK is load-bearing).
 
+- **`lock.circom`** — port of `verify_lock`. Public: root, lockId; outputs nullifierOut,
+  commitmentOut. Spends one AVAILABLE note (membership + published nullifier) → mints one LOCKED note
+  of the SAME amount bound to lockId. Value conserved structurally (one `amount` feeds both
+  commitments → no inflation possible). ~5.4k non-linear. groth16 OK; tampered membership unprovable.
+
 ## Trusted-setup smoke (per-circuit, local)
 Phase-2 smoke only (the real per-circuit ceremony is Phase 3). Shared powers-of-tau `ptau/` (bn128,
 2^15) → per-circuit `groth16 setup` → `prove` → `verify`. ptau/zkey/proof/public/vkey all gitignored.
