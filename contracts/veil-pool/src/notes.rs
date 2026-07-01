@@ -16,6 +16,43 @@ pub const DS_NOTE_LOCKED: u32 = 0x11;
 /// never collide with a note commitment (mirrors circom `Nullifier`).
 pub const DS_NF: u32 = 0x20;
 
+/// Single-input domain tags (v2's SHA256(TAG ‖ x) family, now Poseidon2). All distinct from the
+/// note/nullifier domains and from each other, so no derived identifier collides across roles.
+pub const DS_POS: u32 = 0x30; // position_id
+pub const DS_LOCK: u32 = 0x31; // lock_handle
+pub const DS_REPAID: u32 = 0x32; // repaid_leaf
+pub const DS_LIQUIDATED: u32 = 0x33; // liquidated_leaf
+
+/// Single-input domain hash `H1(x, ds) = poseidon2_hash2(x, 0, ds)` — the Poseidon2 port of v2's
+/// `SHA256(TAG ‖ x)`. Reuses the GATE-T3-locked primitive; mirrors circom `DomainHash1`.
+pub fn domain_hash1(env: &Env, x: &U256, ds: u32) -> U256 {
+    let zero = U256::from_u32(env, 0);
+    poseidon2_hash2(env, x.clone(), zero, Some(U256::from_u32(env, ds)))
+}
+
+/// Public loan identity bound to a borrower secret: `H1(loan_secret, DS_POS)` (v2 `position_id`).
+pub fn position_id(env: &Env, loan_secret: &U256) -> U256 {
+    domain_hash1(env, loan_secret, DS_POS)
+}
+
+/// Ties a loan to one on-chain lock: `H1(lock_id, DS_LOCK)` (v2 `lock_handle`).
+pub fn lock_handle(env: &Env, lock_id: &U256) -> U256 {
+    domain_hash1(env, lock_id, DS_LOCK)
+}
+
+/// The leaf the vault appends to the repaid-tree on repay: `H1(lock_handle, DS_REPAID)` (v2
+/// `repaid_leaf`). The unlock circuit proves its membership in the repaid-root — so this MUST match
+/// the circom `DomainHash1(lock_handle, 0x32)`.
+pub fn repaid_leaf(env: &Env, lock_handle: &U256) -> U256 {
+    domain_hash1(env, lock_handle, DS_REPAID)
+}
+
+/// The leaf the vault appends to the liquidated-tree on liquidation: `H1(lock_handle, DS_LIQUIDATED)`
+/// (v2 `liquidated_leaf`). The seize circuit proves its membership in the liquidated-root.
+pub fn liquidated_leaf(env: &Env, lock_handle: &U256) -> U256 {
+    domain_hash1(env, lock_handle, DS_LIQUIDATED)
+}
+
 /// Note commitment — a domain-separated chain of `Poseidon2(2)` over the opening fields, mirroring
 /// circom `NoteCommitment`:
 ///

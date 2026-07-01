@@ -92,6 +92,25 @@ Reproduced on Soroban in `deposit_root_matches_circom_merkleproof_membership_vec
 note, asserts `pool.root()` equals this literal). If the on-chain incremental tree and the circuit's
 membership fold ever diverge, a deposited note becomes unprovable in the browser.
 
+## Domain hashes (`domain_hash.circom`) + joinsplit circuits
+`DomainHash1(x, ds) = Poseidon2(2)(x, 0, ds)` is the single-input hash family (position_id 0x30,
+lock_handle 0x31, repaid_leaf 0x32, liquidated_leaf 0x33), locked against Soroban `notes` in
+`domain_hash_test`. lock_handle / repaid_leaf / liquidated_leaf are load-bearing: the Phase-4 vault
+inserts the leaves on-chain and the unlock/seize circuits prove their membership.
+
+The joinsplit circuits port `guest/core/src/notes.rs` (Groth16, client-side-provable). Each composes
+`NoteCommitment` + `MerkleProof(16)` + (for spends) `Nullifier`, with u128 amounts range-bound by
+`Num2Bits(128)` before any `GreaterEqThan` (comparators don't range-check their inputs).
+
+- **`borrow.circom`** — port of `verify_borrow`. Public: root, threshold, borrower; outputs
+  positionId, lockHandle. Proves a LOCKED note of hidden amount ≥ threshold is in the pool root.
+  ~5.1k non-linear constraints. groth16 prove/verify **OK**; a below-threshold amount is unprovable
+  (witness fails the `amount ≥ threshold` constraint — the ZK is load-bearing).
+
+## Trusted-setup smoke (per-circuit, local)
+Phase-2 smoke only (the real per-circuit ceremony is Phase 3). Shared powers-of-tau `ptau/` (bn128,
+2^15) → per-circuit `groth16 setup` → `prove` → `verify`. ptau/zkey/proof/public/vkey all gitignored.
+
 ## Build (artifacts gitignored)
 ```
 circom compress_test.circom --r1cs --wasm --sym -o .
