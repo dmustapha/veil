@@ -11,11 +11,19 @@ license = "Apache-2.0"
 crate-type = ["lib", "cdylib"]
 doctest = false
 
+# The `contract` feature (default) compiles the deployable VeilPool contract wrapper. Dependents that
+# only want the shared primitives (poseidon2 / notes / merkle / nullifiers modules) — e.g. veil-vault
+# — depend with `default-features = false` so VeilPool's `__constructor`/fn exports don't collide with
+# their own contract's exports at wasm link time.
+[features]
+default = ["contract"]
+contract = ["dep:veil-verifier"]
+
 [dependencies]
 soroban-sdk = { version = "=27.0.0-rc.1", features = ["hazmat"] }
 # Groth16Proof / Groth16Error types for the cross-contract calls to the deployed lock/unlock/seize
-# verifiers (the note-spend joinsplits).
-veil-verifier = { path = "../veil-verifier" }
+# verifiers (the note-spend joinsplits). Only needed by the contract wrapper.
+veil-verifier = { path = "../veil-verifier", optional = true }
 
 [dev-dependencies]
 soroban-sdk = { version = "=27.0.0-rc.1", features = ["hazmat", "testutils"] }

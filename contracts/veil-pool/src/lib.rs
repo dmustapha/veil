@@ -12,17 +12,23 @@ pub mod nullifiers;
 pub mod poseidon2;
 mod ttl;
 
+#[cfg(feature = "contract")]
 use soroban_sdk::{
     contract, contractclient, contractevent, contractimpl, contracttype, crypto::bn254::Bn254Fr,
     token, Address, Bytes, BytesN, Env, Vec, U256,
 };
 
+#[cfg(feature = "contract")]
 use merkle_with_history::MerkleTreeWithHistory;
+#[cfg(feature = "contract")]
 use notes::{note_commitment, DS_NOTE_AVAILABLE};
+#[cfg(feature = "contract")]
 use nullifiers::NullifierSet;
+#[cfg(feature = "contract")]
 use veil_verifier::{Groth16Error, Groth16Proof};
 
 /// Emitted on every deposit (deposits are public): the leaf index (topic) and its commitment.
+#[cfg(feature = "contract")]
 #[contractevent]
 #[derive(Clone)]
 pub struct Deposit {
@@ -34,6 +40,7 @@ pub struct Deposit {
 /// Emitted on every note-spend joinsplit (lock/unlock/seize): the consumed nullifier (topic) and the
 /// first minted leaf (index + commitment). For `seize` a change leaf follows at `index + 1`. Lets an
 /// indexer rebuild the tree from deposits + spends without recomputing any secret.
+#[cfg(feature = "contract")]
 #[contractevent]
 #[derive(Clone)]
 pub struct Spent {
@@ -44,6 +51,7 @@ pub struct Spent {
 }
 
 /// Instance config keys.
+#[cfg(feature = "contract")]
 #[contracttype]
 #[derive(Clone)]
 enum ConfigKey {
@@ -63,6 +71,7 @@ enum ConfigKey {
 
 /// A deployed Groth16 verifier. `verify` returns `Ok(true)` on a valid proof and TRAPS (reverts) on
 /// an invalid proof or mismatched public inputs — public inputs in snarkjs order.
+#[cfg(feature = "contract")]
 #[contractclient(name = "VerifierClient")]
 pub trait VerifierIface {
     fn verify(
@@ -75,6 +84,7 @@ pub trait VerifierIface {
 /// The veil-vault — publishes the Poseidon repaid/liquidated gating roots. unlock proves membership
 /// against `repaid_root`, seize against `liquidated_root` (collateral is recoverable/seizable only
 /// after the vault has recorded the repayment / liquidation).
+#[cfg(feature = "contract")]
 #[contractclient(name = "VaultClient")]
 pub trait VaultIface {
     fn repaid_root(env: Env) -> U256;
@@ -84,6 +94,7 @@ pub trait VaultIface {
 /// Shielded note pool. Holds the Poseidon2 Merkle tree of note commitments; `deposit` escrows
 /// collateral and inserts a leaf, joinsplits (lock/unlock/seize) spend + mint against it. (Nullifier
 /// set + joinsplit verification wiring land in the following Phase-1/Phase-4 steps.)
+#[cfg(feature = "contract")]
 #[contract]
 pub struct VeilPool;
 
@@ -91,18 +102,21 @@ pub struct VeilPool;
 /// reduces mod `r`, but the nullifier set / tree key on the raw `U256` — so a non-canonical
 /// representative (`nf + r`) would be a distinct key yet the SAME field element, re-verifying the same
 /// proof (double-spend). Every field input is range-rejected against this before use. See audit C-01.
+#[cfg(feature = "contract")]
 const BN254_R: [u8; 32] = [
     0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
     0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91, 0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x01,
 ];
 
 /// Widen a positive `i128` amount to a BN254 field element (16-byte BE at the low word).
+#[cfg(feature = "contract")]
 fn amount_to_field(env: &Env, amount: i128) -> U256 {
     let mut b = [0u8; 32];
     b[16..].copy_from_slice(&amount.to_be_bytes());
     U256::from_be_bytes(env, &Bytes::from_array(env, &b))
 }
 
+#[cfg(feature = "contract")]
 #[contractimpl]
 impl VeilPool {
     /// Deploy-time init: the collateral token + the depth-`levels` note tree. Runs atomically with

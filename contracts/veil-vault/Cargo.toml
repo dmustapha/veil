@@ -15,7 +15,7 @@ doctest = false
 soroban-sdk = { version = "=27.0.0-rc.1", features = ["hazmat"] }
 # Reuse the proven Poseidon2 primitive + note hashes so the vault's gating trees and the circuits
 # (unlock/seize membership) share ONE hash — no re-derivation.
-veil-pool = { path = "../veil-pool" }
+veil-pool = { path = "../veil-pool", default-features = false }
 # Groth16Proof / Groth16Error types for the cross-contract call to the deployed borrow verifier.
 veil-verifier = { path = "../veil-verifier" }
 

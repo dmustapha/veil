@@ -145,6 +145,14 @@ Circom→Groth16 (BN254) verifiers, one per joinsplit circuit, mirrored from Net
 ⚠️ Trusted setup is single-party (see `circom/ceremony.sh`) — testnet/demo only, NOT sound for real
 funds. Mainnet requires a multi-party ceremony.
 
+### v3 full contract suite (Phase 6c, Stellar testnet, sdk 27.0.0-rc.1 / protocol 27)
+Deployer/admin `veil-spike` `GABHHKTQ…FXIF`. The complete Soroban-native private-lending system, live + wired:
+- **veil-pool** (shielded note pool: deposit + lock/unlock/seize + nullifier set): `CADQ2QHEAT2OYDSHWHPNOA5FTHJGT4K44PYEY5S65LNI6WCHPTBFMBMR`
+  - collateral token `CBIELTK6…DAMA` (USDC SAC), levels 16, verifiers wired, `set_vault` → veil-vault (tx `f71ecd03…`)
+- **veil-vault** (ERC-4626 LP + borrow/margin/repay/liquidate): `CANIPKVDBYMLQVAEC3SYOUMQBCOJOQPFBA2UFSPKVMPUWHMZWISKSQNT`
+  - borrow_verifier `CBTSWUY5…DMM2`, veil_pool `CADQ2QHE…MBMR`, usdc `CBIELTK6…DAMA`, reflector `CCYOZJCO…RN63` Other(ETH), ltv 7000 / liq 8000 / min_threshold 1e11 / term 500000 / rate 500
+- **verifiers** (P27): lock `CD4LXCNPZLENGPJCNTSJBNH6MJZ6ZA6SQ7352UA3KNZBHQ3P2ESESH6B` · unlock `CDIAVRLOXCMMUAY2VCRLWUZLJVFCZAEZSRTOQ4XENTXEUOUGNF2WJSVQ` · seize `CCS6HBA3VUGILJIT77JG7XJWGYWW3QMFECUX67CZMJS4356Z42O7FGHU` (borrow above)
+
 ### Client-side (browser) proof verified on-chain (Phase 5)
 A **browser-generated** Groth16 borrow proof (snarkjs `groth16.fullProve` over the vendored
 `borrow.wasm`+`borrow.zkey`) verifies on the live verifier: `verify(proof, public_inputs) → true`,
