@@ -119,6 +119,13 @@ The joinsplit circuits port `guest/core/src/notes.rs` (Groth16, client-side-prov
   EITHER the pool path or the repaid path is unprovable (no collateral recovery without repay — the
   core invariant).
 
+- **`seize.circom`** — port of `verify_seize`. Public: rootPool, rootLiquidated, seized; outputs
+  nullifierOut, commitmentLiquidator, commitmentChange. Spends a LOCKED note GATED on the
+  default-proof (`liquidated_leaf(lock_handle(lockId))` ∈ liquidated root) → liquidator note worth the
+  public `seized` floor + change note worth the hidden `amount - seized`. Conserved: `seized + change
+  == amount`, `amount >= seized`. ~10.5k non-linear. groth16 OK; over-seize (seized > amount) and a
+  non-liquidated position (tampered liquidated path) are both unprovable.
+
 ## Trusted-setup smoke (per-circuit, local)
 Phase-2 smoke only (the real per-circuit ceremony is Phase 3). Shared powers-of-tau `ptau/` (bn128,
 2^15) → per-circuit `groth16 setup` → `prove` → `verify`. ptau/zkey/proof/public/vkey all gitignored.
