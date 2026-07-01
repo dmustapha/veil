@@ -373,6 +373,43 @@ mod deposit_test {
     }
 
     #[test]
+    fn deposit_root_matches_circom_merkleproof_membership_vector() {
+        // DEPOSIT↔CIRCUIT CONSISTENCY LOCK (deferred from Phase 1). The Soroban veil-pool root after
+        // ONE deposit of the canonical AVAILABLE note (ds=0x10, amount=2e18, spendPk=2, blinding=1,
+        // aux=0 → leaf 0x01c209ef…) must equal what the circom `MerkleProof(16)` computes for that
+        // leaf at index 0 with the `get_zeroes[0..16]` siblings and pathIndices=0. If the on-chain
+        // incremental tree and the client-side membership circuit ever diverge, a deposited note is
+        // not provable in the browser — the whole pivot silently breaks. circom root pinned from
+        // `merkle_proof_test.circom` (witness `merkle_proof_input.json`), locked in circom/README.md.
+        let env = Env::default();
+        env.mock_all_auths();
+        let issuer = Address::generate(&env);
+        let user = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(issuer);
+        token::StellarAssetClient::new(&env, &sac.address())
+            .mint(&user, &3_000_000_000_000_000_000i128);
+        let id = env.register(VeilPool, (sac.address(), 16u32));
+        let pool = VeilPoolClient::new(&env, &id);
+
+        pool.deposit(
+            &user,
+            &2_000_000_000_000_000_000i128,
+            &U256::from_u32(&env, 2),
+            &U256::from_u32(&env, 1),
+        );
+
+        // circom MerkleProof(16) root for leaf 0x01c209ef… at index 0 with get_zeroes siblings.
+        const CIRCOM_ROOT: [u8; 32] = [
+            0x15, 0x0d, 0x70, 0x55, 0xc4, 0xe2, 0xe7, 0x96, 0x81, 0x4f, 0x44, 0xc6, 0xef, 0x83,
+            0x25, 0x06, 0x70, 0xf7, 0xd8, 0xf0, 0xef, 0xc2, 0x01, 0x2c, 0x68, 0x3b, 0x5c, 0xee,
+            0x38, 0x3b, 0xf3, 0x3c,
+        ];
+        let expected =
+            U256::from_be_bytes(&env, &soroban_sdk::Bytes::from_array(&env, &CIRCOM_ROOT));
+        assert_eq!(pool.root(), expected, "on-chain deposit root must match circom MerkleProof");
+    }
+
+    #[test]
     #[should_panic(expected = "amount must be positive")]
     fn deposit_rejects_nonpositive_amount() {
         let env = Env::default();

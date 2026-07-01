@@ -82,3 +82,6 @@ circom/ptau/
 circom/**/*_out.json
 circom/**/*_input.json
 contracts/veil-pool/test_snapshots/
+
+# circom js deps: node_modules already ignored above (**/node_modules/); package.json + lock
+# ARE tracked so `npm i` in circom/ restores the exact circomlib pin.

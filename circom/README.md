@@ -73,6 +73,25 @@ reproduced on Soroban in `nullifier_hash_test`):
 = 5905671021789640503695739615972304829318177619592056643404543986320060485651
 ```
 
+## Merkle membership (`merkle_proof.circom`) + deposit↔circuit consistency lock
+Depth-parametric Poseidon2 membership (adapted from Nethermind, Apache-2.0), using the t=2
+`PoseidonCompress` for internal nodes — byte-identical to the Soroban `poseidon2_compress`.
+`Num2Bits`/`Switcher` come from `circomlib` (pinned in `package.json`; `npm i` in `circom/` to
+restore `node_modules`, then compile with `-l node_modules`).
+
+**DEPOSIT-ROOT MEMBERSHIP VECTOR** (the deposit↔circuit lock deferred from Phase 1): the Soroban
+veil-pool root after ONE deposit of the canonical AVAILABLE note (leaf `0x01c209ef…`) equals
+`MerkleProof(16)` for that leaf at index 0 with the `get_zeroes[0..16]` siblings, pathIndices=0:
+
+```
+0x150d7055c4e2e796814f44c6ef83250670f7d8f0efc2012c683b5cee383bf33c
+= 9522314140011572725022969565431319453700121595450358291806547786130838516540
+```
+
+Reproduced on Soroban in `deposit_root_matches_circom_merkleproof_membership_vector` (deposits the
+note, asserts `pool.root()` equals this literal). If the on-chain incremental tree and the circuit's
+membership fold ever diverge, a deposited note becomes unprovable in the browser.
+
 ## Build (artifacts gitignored)
 ```
 circom compress_test.circom --r1cs --wasm --sym -o .
