@@ -160,3 +160,23 @@ tampered `public[4]` → `InvalidProof`. Reproduce: `cd web && pnpm verify:prove
 - Encoding: proof `{a,b,c}` = Bytes (G1 64B / G2 128B `c1||c0`); `public_inputs` = **Array<u256>**
   (`Bn254Fr` marshals as ScVal::U256, not Bytes — the earlier trap was a client-side arg-encoding
   bug, never a verifier fault). Rebuilt against soroban-sdk 27.0.0-rc.1 to match testnet protocol 27.
+
+## Veil v3 — Phase 6d hybrid live e2e (mock collateral + REAL USDC loan)
+Phase 6d runs a full deposit→lock→borrow with a mintable private-collateral note and a REAL Circle
+USDC loan. The circuit's collateral `amount`/`threshold` live at a ~1e11-units-per-collateral-unit
+scale (`size_loan` divides `threshold` by 1e11), and the pool escrows `amount` of its collateral token
+1:1 — so a borrowable note needs ≥1e11 collateral units, infeasible with ~10 real USDC. Resolution: the
+COLLATERAL is a mintable mock SAC (VEILC, issued by veil-spike → unlimited issuance on transfer) while
+the LOAN disburses REAL USDC_SAC. Fresh pool+vault (the 4 verifiers are token-agnostic, unchanged).
+
+Deployer/admin `veil-spike` `GABHHKTQ…FXIF`, sdk 27.0.0-rc.1 / protocol 27:
+- **VEILC** mock collateral SAC (issuer veil-spike): `CCZSYIZHEKQFDDTEI633FRXBHUBY4TG46N7SKJNNC3IJVBI3S2KZSVUB`
+  - deploy tx `f56d25b88344f1eaa37b1b6c66fa01745f03efa4dae106d855d1a9495515aa92`. Issuer holds no
+    balance (`balance()` = i128::MAX); `deposit`'s transfer ISSUES VEILC to the pool (no mint needed).
+- **veil-pool** (collateral = VEILC, levels 16, verifiers lock/unlock/seize):
+  `CDB6ZC4UYYCWCP5HMQEFBGEPJP7HO52A2L6LX5P6SYDRGKFA2MHOJAKW` (deploy tx `7a24fc83eb42ed18bafd5768deb84312d1c0ca41280b92e1d1dd43c0646fb482`)
+- **veil-vault** (usdc = REAL USDC_SAC `CBIELTK6…DAMA`, veil_pool above, borrow_verifier `CBTSWUY5…DMM2`,
+  reflector `CCYOZJCO…RN63` Other(ETH), ltv 7000 / liq 8000 / min_threshold 1e11 / term 500000 / rate 500):
+  `CBSZGP4UJK4LHWJD64HORNOHMZPE4F3O3WYUPXWWA2WWIUSUIP3GEMWJ` (deploy tx `eae71a2e5df5d542ee9738e063fdfc182414844c8cfb6633683db18f3abff4b4`)
+  - `pool.set_vault` tx `b5c8e3527be97addc26bad1ab74761ad4c00deb8fee863371fbe73def226139e`
+  - `lp_deposit` 9 real USDC (90000000) tx `70506df07866a1cfd84db35c89d7a6acac5a48e6140a074fb997de9e246a089e` → vault total_idle 90000000
