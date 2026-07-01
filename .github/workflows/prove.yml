@@ -1,19 +1,18 @@
 name: prove
 
-# Produces the REAL RISC Zero Groth16 proof for Veil on a free GitHub-hosted x86 runner
-# (16 GB RAM, the spec local Groth16 proving needs). No Bonsai key, no cost. The guest reads the
-# committed fixture (guest/fixtures); proof.json (seal + image_id + journal) is uploaded as an artifact.
+# Produces the REAL RISC Zero Groth16 proofs + image_ids for Veil's FOUR guests
+# (borrow, lock, unlock, seize) on free GitHub-hosted x86 runners (16 GB RAM, the spec local
+# Groth16 proving needs). No Bonsai key, no cost. One matrix leg per guest → one proof.json + one
+# image_id each; a final job aggregates the four ids into image-ids.json for the v2 deploy
+# (VeilPool needs the real lock/unlock/seize ids; vault-v2 needs the real borrow id).
 #
-# PRIVACY NOTE: with no inputs (push, or a plain dispatch) this proves the COMMITTED demo fixture,
-# whose amount is already public (Etherscan + guest/fixtures), so nothing leaks. A real user's
-# PRIVATE collateral amount must NOT be proven on this public repo's CI (a workflow_dispatch input
-# value is world-visible) — route real-user proving to a private prover (Bonsai / self-hosted
-# runner / private repo). See web/PROVING.md. The steps below never print witness contents.
+# PRIVACY: each host driver builds a COMMITTED, PUBLIC demo witness from in-file constants and reads
+# NO external input, so nothing private can be dispatched to this public CI surface. The demo amounts
+# are already public (Etherscan + the committed hosts), and every host asserts the hidden amount never
+# lands in its journal. A real user's PRIVATE collateral must NOT be proven here — route real-user
+# proving to the private prover (Bonsai / self-hosted runner / private repo). See web/PROVING.md.
+# The steps below never print witness contents (hosts print only public journals + image_ids).
 
-# PRIVACY: this PUBLIC repo proves ONLY the committed (public) demo fixture. It deliberately accepts
-# NO user-fixture input, so a real user's private amount can never be dispatched to a public CI
-# surface. Real-user proving runs on the PRIVATE repo dmustapha/veil-prover (a byte-identical guest
-# mirror) or a self-hosted / Bonsai prover. See web/PROVING.md.
 on:
   workflow_dispatch: {}
   push:
@@ -25,6 +24,22 @@ jobs:
   groth16:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - guest: borrow
+            bin: host
+            proof: proof.json
+          - guest: lock
+            bin: lock
+            proof: proof-lock.json
+          - guest: unlock
+            bin: unlock
+            proof: proof-unlock.json
+          - guest: seize
+            bin: seize
+            proof: proof-seize.json
     steps:
       - uses: actions/checkout@v4
 
@@ -54,22 +69,66 @@ jobs:
           nproc
           rzup show || true
 
-      # This public repo always proves the COMMITTED (public) demo fixture. No user-fixture input
-      # path exists here — real-user proving lives on the private veil-prover repo (see header).
-
-      - name: Generate real Groth16 proof
+      # Real Groth16 (RISC0_DEV_MODE unset). Each leg proves its own guest's committed PUBLIC witness.
+      - name: Generate real Groth16 proof (${{ matrix.guest }})
         working-directory: guest
         env:
           RUST_LOG: info
-        run: cargo run --release
+        run: cargo run --release --bin ${{ matrix.bin }}
 
-      - name: Show proof.json
+      - name: Show proof (${{ matrix.guest }})
         working-directory: guest
-        run: cat proof.json
+        run: cat ${{ matrix.proof }}
 
-      - name: Upload proof artifact
+      - name: Extract image_id (${{ matrix.guest }})
+        working-directory: guest
+        run: |
+          set -euo pipefail
+          IMAGE_ID="$(jq -er '.image_id' '${{ matrix.proof }}')"
+          echo "guest=${{ matrix.guest }} image_id=$IMAGE_ID"
+          mkdir -p ids
+          jq -n --arg k '${{ matrix.guest }}' --arg v "$IMAGE_ID" '{($k): $v}' > "ids/${{ matrix.guest }}.json"
+
+      - name: Upload proof artifact (${{ matrix.guest }})
         uses: actions/upload-artifact@v4
         with:
-          name: veil-proof
-          path: guest/proof.json
+          name: veil-proof-${{ matrix.guest }}
+          path: guest/${{ matrix.proof }}
+          if-no-files-found: error
+
+      - name: Upload image_id fragment (${{ matrix.guest }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: veil-imageid-${{ matrix.guest }}
+          path: guest/ids/${{ matrix.guest }}.json
+          if-no-files-found: error
+
+  aggregate:
+    needs: groth16
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download image_id fragments
+        uses: actions/download-artifact@v4
+        with:
+          pattern: veil-imageid-*
+          path: fragments
+          merge-multiple: true
+
+      - name: Merge into image-ids.json
+        run: |
+          set -euo pipefail
+          jq -s 'add' fragments/*.json > image-ids.json
+          echo "== real v2 image_ids =="
+          cat image-ids.json
+          # Fail loudly if any guest is missing (deploy consumes all four).
+          for g in borrow lock unlock seize; do
+            jq -er --arg g "$g" '.[$g]' image-ids.json >/dev/null \
+              || { echo "missing image_id for $g"; exit 1; }
+          done
+
+      - name: Upload aggregated image-ids.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: veil-image-ids
+          path: image-ids.json
           if-no-files-found: error
