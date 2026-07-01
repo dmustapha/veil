@@ -10,21 +10,90 @@ pub mod merkle_with_history;
 pub mod notes;
 pub mod poseidon2;
 
-use soroban_sdk::{contract, contractimpl, Env, U256};
+use soroban_sdk::{
+    contract, contractevent, contractimpl, contracttype, token, Address, Bytes, Env, U256,
+};
 
 use merkle_with_history::MerkleTreeWithHistory;
+use notes::{note_commitment, DS_NOTE_AVAILABLE};
 
-/// Shielded note pool. Holds the Poseidon2 Merkle tree of note commitments; deposits insert leaves,
-/// joinsplits (lock/unlock/seize) spend + mint against it. (Deposit/nullifier/joinsplit wiring lands
-/// in the next Phase-1/Phase-4 steps; this shell exposes the tree primitive.)
+/// Emitted on every deposit (deposits are public): the leaf index (topic) and its commitment.
+#[contractevent]
+#[derive(Clone)]
+pub struct Deposit {
+    #[topic]
+    pub index: u32,
+    pub commitment: U256,
+}
+
+/// Instance config keys.
+#[contracttype]
+#[derive(Clone)]
+enum ConfigKey {
+    /// Collateral token (a Stellar Asset Contract) the pool escrows.
+    Token,
+    /// Running sum of escrowed collateral — the pool's solvency floor (= Σ live note amounts).
+    TotalDeposited,
+}
+
+/// Shielded note pool. Holds the Poseidon2 Merkle tree of note commitments; `deposit` escrows
+/// collateral and inserts a leaf, joinsplits (lock/unlock/seize) spend + mint against it. (Nullifier
+/// set + joinsplit verification wiring land in the following Phase-1/Phase-4 steps.)
 #[contract]
 pub struct VeilPool;
 
+/// Widen a positive `i128` amount to a BN254 field element (16-byte BE at the low word).
+fn amount_to_field(env: &Env, amount: i128) -> U256 {
+    let mut b = [0u8; 32];
+    b[16..].copy_from_slice(&amount.to_be_bytes());
+    U256::from_be_bytes(env, &Bytes::from_array(env, &b))
+}
+
 #[contractimpl]
 impl VeilPool {
-    /// One-time init of the depth-`levels` note tree.
-    pub fn init(env: Env, levels: u32) {
+    /// One-time init: the collateral token + the depth-`levels` note tree.
+    pub fn init(env: Env, token: Address, levels: u32) {
+        env.storage().instance().set(&ConfigKey::Token, &token);
+        env.storage().instance().set(&ConfigKey::TotalDeposited, &0i128);
         MerkleTreeWithHistory::init(&env, levels).expect("init");
+    }
+
+    /// Escrow `amount` of collateral and insert its AVAILABLE note commitment.
+    ///
+    /// The commitment is recomputed on-chain from `(amount, spend_pk, blinding)` so the escrowed
+    /// collateral is provably bound to the leaf — the pool holds exactly the sum of live note
+    /// amounts. Deposits are public (collateral in the clear); privacy comes from the anonymity set
+    /// and the later shielded joinsplits. Returns the leaf index.
+    pub fn deposit(env: Env, from: Address, amount: i128, spend_pk: U256, blinding: U256) -> u32 {
+        from.require_auth();
+        assert!(amount > 0, "amount must be positive");
+
+        let amount_f = amount_to_field(&env, amount);
+        let zero = U256::from_u32(&env, 0);
+        let commitment =
+            note_commitment(&env, DS_NOTE_AVAILABLE, &amount_f, &spend_pk, &blinding, &zero);
+
+        let token_addr: Address =
+            env.storage().instance().get(&ConfigKey::Token).expect("not initialized");
+        token::TokenClient::new(&env, &token_addr).transfer(
+            &from,
+            &env.current_contract_address(),
+            &amount,
+        );
+
+        let index = MerkleTreeWithHistory::insert_leaf(&env, commitment.clone()).expect("insert");
+
+        let total: i128 =
+            env.storage().instance().get(&ConfigKey::TotalDeposited).unwrap_or(0);
+        env.storage().instance().set(&ConfigKey::TotalDeposited, &(total + amount));
+
+        Deposit { index, commitment }.publish(&env);
+        index
+    }
+
+    /// Total collateral escrowed (the pool's solvency floor).
+    pub fn total_deposited(env: Env) -> i128 {
+        env.storage().instance().get(&ConfigKey::TotalDeposited).unwrap_or(0)
     }
 
     /// Current tree root.
@@ -154,6 +223,78 @@ mod note_commitment_test {
         let avail = note_commitment(&env, DS_NOTE_AVAILABLE, &amount, &pk, &b, &zero);
         let locked = note_commitment(&env, DS_NOTE_LOCKED, &amount, &pk, &b, &zero);
         assert!(avail != locked, "domain separation must distinguish AVAILABLE from LOCKED");
+    }
+}
+
+#[cfg(test)]
+mod deposit_test {
+    use crate::merkle_with_history::MerkleTreeWithHistory as T;
+    use crate::notes::{note_commitment, DS_NOTE_AVAILABLE};
+    use crate::{amount_to_field, VeilPool, VeilPoolClient};
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{token, Address, Env, U256};
+
+    #[test]
+    fn deposit_escrows_collateral_and_inserts_available_commitment() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        // Collateral token (SAC) + a funded user.
+        let issuer = Address::generate(&env);
+        let user = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(issuer);
+        let coin = token::TokenClient::new(&env, &sac.address());
+        let coin_admin = token::StellarAssetClient::new(&env, &sac.address());
+        coin_admin.mint(&user, &1_000_000i128);
+
+        let id = env.register(VeilPool, ());
+        let pool = VeilPoolClient::new(&env, &id);
+        pool.init(&sac.address(), &16u32);
+
+        let amount = 500_000i128;
+        let spend_pk = U256::from_u32(&env, 2);
+        let blinding = U256::from_u32(&env, 1);
+        let index = pool.deposit(&user, &amount, &spend_pk, &blinding);
+
+        // Leaf index, escrow movement, and the solvency floor.
+        assert_eq!(index, 0);
+        assert_eq!(coin.balance(&user), 500_000, "collateral left the user");
+        assert_eq!(coin.balance(&id), 500_000, "collateral escrowed in the pool");
+        assert_eq!(pool.total_deposited(), 500_000);
+
+        // The inserted leaf IS the AVAILABLE commitment of (amount, spend_pk, blinding, aux=0):
+        // a fresh tree with that independently-computed commitment must reach the same root.
+        let root = pool.root();
+        assert!(pool.is_known_root(&root));
+
+        let amount_f = amount_to_field(&env, amount);
+        let expected_c = note_commitment(
+            &env,
+            DS_NOTE_AVAILABLE,
+            &amount_f,
+            &spend_pk,
+            &blinding,
+            &U256::from_u32(&env, 0),
+        );
+        let id2 = env.register(VeilPool, ());
+        env.as_contract(&id2, || T::init(&env, 16).unwrap());
+        env.as_contract(&id2, || T::insert_leaf(&env, expected_c.clone()).unwrap());
+        let expected_root = env.as_contract(&id2, || T::get_last_root(&env).unwrap());
+        assert_eq!(root, expected_root, "deposited leaf must be the AVAILABLE commitment");
+    }
+
+    #[test]
+    #[should_panic(expected = "amount must be positive")]
+    fn deposit_rejects_nonpositive_amount() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let issuer = Address::generate(&env);
+        let user = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(issuer);
+        let id = env.register(VeilPool, ());
+        let pool = VeilPoolClient::new(&env, &id);
+        pool.init(&sac.address(), &16u32);
+        pool.deposit(&user, &0i128, &U256::from_u32(&env, 2), &U256::from_u32(&env, 1));
     }
 }
 
