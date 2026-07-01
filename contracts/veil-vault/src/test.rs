@@ -99,6 +99,31 @@ fn withdraw_rejects_more_shares_than_held() {
     assert!(r.is_err(), "over-withdraw must be rejected");
 }
 
+#[test]
+#[should_panic(expected = "ltv/liq bps out of range")]
+fn constructor_rejects_ltv_above_liq() {
+    // ltv_bps must be <= liq_bps so a fresh loan isn't instantly liquidatable (audit L-03).
+    let env = Env::default();
+    env.mock_all_auths();
+    let sac = env.register_stellar_asset_contract_v2(Address::generate(&env));
+    env.register(
+        VeilVault,
+        (
+            Address::generate(&env),
+            Address::generate(&env),
+            Address::generate(&env),
+            sac.address(),
+            Address::generate(&env),
+            Asset::Other(Symbol::new(&env, "WSTETH")),
+            9000u32, // ltv_bps > liq_bps
+            8000u32, // liq_bps
+            1_000u128,
+            100_000u32,
+            500u32,
+        ),
+    );
+}
+
 // ---- Poseidon gating trees (unit 2) ----
 
 mod gating_tree {

@@ -187,6 +187,15 @@ impl VeilVault {
         term_ledgers: u32,
         rate_bps: u32,
     ) {
+        // Deploy-time config bounds. The contract is non-upgradeable, so a bad config is
+        // unrecoverable — fail the deploy. `ltv_bps <= liq_bps` keeps a fresh loan out of instant
+        // liquidation; `liq_bps <= 10_000` and `> 0` keep `size_loan` from collapsing to 0 (which
+        // would report every position liquidatable). See audit L-03.
+        assert!(
+            ltv_bps > 0 && ltv_bps <= liq_bps && liq_bps <= 10_000,
+            "ltv/liq bps out of range"
+        );
+        assert!(min_threshold > 0 && term_ledgers > 0, "min_threshold/term_ledgers must be > 0");
         let cfg = Config {
             admin, borrow_verifier, veil_pool, usdc, reflector, reflector_asset,
             ltv_bps, liq_bps, min_threshold, term_ledgers, rate_bps,
@@ -296,18 +305,13 @@ impl VeilVault {
         if !PoolClient::new(&env, &cfg.veil_pool).is_known_root(&root) {
             return Err(Error::UnknownRoot);
         }
-        // 3. One lock -> one loan, FOREVER (the tree is append-only). Reject duplicate position.
-        if env.storage().persistent().has(&DataKey::LockUsed(lock_handle.clone())) {
-            return Err(Error::LockHandleUsed);
-        }
-        if env.storage().persistent().has(&DataKey::Position(position_id.clone())) {
-            return Err(Error::PositionExists);
-        }
         if threshold < cfg.min_threshold {
             return Err(Error::ThresholdTooLow);
         }
 
-        // 4. Size the loan from the live Reflector price (reject a stale price).
+        // 3. Size the loan from the live Reflector price (reject a stale price). This external oracle
+        //    read is done BEFORE the uniqueness reservation so that no external call sits between the
+        //    duplicate check and its write — strict checks-effects-interactions. See audit L-01.
         let r = ReflectorClient::new(&env, &cfg.reflector);
         let px = r.lastprice(&cfg.reflector_asset).ok_or(Error::NoPrice)?;
         if env.ledger().timestamp().saturating_sub(px.timestamp) > MAX_PRICE_AGE_SECS {
@@ -316,6 +320,15 @@ impl VeilVault {
         let principal = size_loan(threshold, px.price, r.decimals(), cfg.ltv_bps);
         if principal <= 0 {
             return Err(Error::LoanTooSmall);
+        }
+
+        // 4. One lock -> one loan, FOREVER (the tree is append-only). Reject a duplicate lock or
+        //    position. From here through the writes there is NO external call.
+        if env.storage().persistent().has(&DataKey::LockUsed(lock_handle.clone())) {
+            return Err(Error::LockHandleUsed);
+        }
+        if env.storage().persistent().has(&DataKey::Position(position_id.clone())) {
+            return Err(Error::PositionExists);
         }
 
         // 5. Draw from idle LP liquidity (accrue first so the index is current).
@@ -403,6 +416,7 @@ impl VeilVault {
         pos.floor = threshold;
         env.storage().persistent().set(&pk, &pos);
         Self::bump(&env, &pk);
+        Self::bump_instance(&env);
         Ok(threshold)
     }
 
@@ -423,20 +437,24 @@ impl VeilVault {
         Self::accrue(&env, &mut pool, cfg.rate_bps);
         let debt = pos.principal_scaled.checked_mul(pool.borrow_index).expect("ovf") / INDEX_SCALE;
 
-        token::TokenClient::new(&env, &cfg.usdc).transfer(
-            &pos.borrower,
-            &env.current_contract_address(),
-            &debt,
-        );
-
+        // Effects first (mark REPAID, return the debt to idle, drop the scaled principal, append the
+        // Poseidon repaid-leaf); the borrower's USDC pull is the LAST interaction and reverts the
+        // whole call on failure, so no effect persists without payment. See audit L-02.
         pool.total_idle += debt;
         pool.total_borrowed_scaled -= pos.principal_scaled;
         pos.status = STATUS_REPAID;
         let lock_handle = pos.lock_handle.clone();
+        let borrower = pos.borrower.clone();
         env.storage().persistent().set(&pk, &pos);
         Self::save_pool(&env, &pool);
         Self::bump(&env, &pk);
         Self::append_leaf(&env, DataKey::RepaidTree, tree::repaid_leaf(&env, &lock_handle));
+
+        token::TokenClient::new(&env, &cfg.usdc).transfer(
+            &borrower,
+            &env.current_contract_address(),
+            &debt,
+        );
         Ok(debt)
     }
 
@@ -462,12 +480,9 @@ impl VeilVault {
             return Err(Error::NotLiquidatable);
         }
 
-        token::TokenClient::new(&env, &cfg.usdc).transfer(
-            &liquidator,
-            &env.current_contract_address(),
-            &debt,
-        );
-
+        // Effects first (mark LIQUIDATED, restore idle, drop scaled principal, append the Poseidon
+        // liquidated-leaf); the liquidator's USDC pull is the LAST interaction and reverts the whole
+        // call on failure. See audit L-02.
         pool.total_idle += debt;
         pool.total_borrowed_scaled -= pos.principal_scaled;
         pos.status = STATUS_LIQUIDATED;
@@ -476,6 +491,12 @@ impl VeilVault {
         Self::save_pool(&env, &pool);
         Self::bump(&env, &pk);
         Self::append_leaf(&env, DataKey::LiquidatedTree, tree::liquidated_leaf(&env, &lock_handle));
+
+        token::TokenClient::new(&env, &cfg.usdc).transfer(
+            &liquidator,
+            &env.current_contract_address(),
+            &debt,
+        );
         Ok(debt)
     }
 
@@ -620,7 +641,10 @@ impl VeilVault {
         pi.push_back(Self::fr(env, root));
         pi.push_back(Self::fr_u128(env, threshold));
         pi.push_back(Self::fr(env, &bfield));
-        VerifierClient::new(env, verifier).verify(proof, &pi);
+        // The verifier traps on an invalid proof (fail-closed). Assert on the boolean too, so a
+        // hypothetical verifier that returned Ok(false) instead of Err can't let a bad proof through
+        // — the guarantee no longer depends on the verifier's error-vs-false convention. See audit M-02.
+        assert!(VerifierClient::new(env, verifier).verify(proof, &pi), "proof rejected");
     }
     /// Append a Poseidon leaf to a gating tree (repaid `R_sor` / liquidated `R_liq`) and persist it,
     /// bumping the instance TTL. The new root lines up with the circom `MerkleProof` for that leaf.
@@ -632,6 +656,12 @@ impl VeilVault {
     }
     fn save_pool(env: &Env, pool: &Pool) {
         env.storage().instance().set(&DataKey::Pool, pool);
+        Self::bump_instance(env);
+    }
+    /// Extend the contract-instance TTL (Config/Pool/gating trees all live in instance storage).
+    /// Called on every state-mutating path so a quiet vault can't archive and freeze. See audit M-01.
+    fn bump_instance(env: &Env) {
+        env.storage().instance().extend_ttl(BUMP_THRESHOLD, BUMP_AMOUNT);
     }
     /// total_assets = idle + outstanding debt (scaled debt × index). Interest growth lifts this, so
     /// existing LP shares appreciate.

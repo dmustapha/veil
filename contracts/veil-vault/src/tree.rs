@@ -56,6 +56,9 @@ pub fn liquidated_leaf(env: &Env, lock_handle: &U256) -> U256 {
 /// (Used by `repay`/`liquidate` in unit 4; the cross-vector test exercises it now.)
 #[allow(dead_code)]
 pub fn insert(env: &Env, tree: &mut GatingTree, leaf: U256) {
+    // Reject an append past the tree's capacity (2^DEPTH leaves); beyond it the incremental fold
+    // would wrap and corrupt the root. See audit I-01.
+    assert!(tree.next_index < (1u32 << DEPTH), "gating tree full");
     let z = get_zeroes(env);
     let mut idx = tree.next_index;
     let mut cur = leaf;
