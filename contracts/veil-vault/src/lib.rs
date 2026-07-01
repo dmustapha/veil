@@ -20,13 +20,22 @@ mod tree;
 use tree::GatingTree;
 
 use soroban_sdk::{
-    contract, contractclient, contracterror, contractimpl, contracttype, token, Address, BytesN,
-    Env, Symbol, U256,
+    contract, contractclient, contracterror, contractimpl, contracttype,
+    crypto::bn254::Bn254Fr, token, Address, Bytes, BytesN, Env, Symbol, Vec, U256,
 };
+use veil_verifier::{Groth16Error, Groth16Proof};
 
 const DAY_LEDGERS: u32 = 17_280;
 const BUMP_AMOUNT: u32 = 30 * DAY_LEDGERS;
 const BUMP_THRESHOLD: u32 = BUMP_AMOUNT - DAY_LEDGERS;
+const MAX_PRICE_AGE_SECS: u64 = 1_800;
+
+/// BN254 scalar field modulus `r` (big-endian) — the borrower binding is reduced mod `r` so it is a
+/// valid circuit public input.
+const BN254_R: [u8; 32] = [
+    0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
+    0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91, 0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x01,
+];
 
 /// Fixed-point scale for the interest index (1.0 == 1e9).
 const INDEX_SCALE: i128 = 1_000_000_000;
@@ -84,6 +93,24 @@ pub trait Reflector {
     fn decimals(env: Env) -> u32;
 }
 
+/// The deployed Groth16 borrow verifier. `verify` returns `Ok(true)` for a valid proof and TRAPS
+/// (reverts the borrow) on an invalid proof or mismatched public inputs — the fail-closed contract
+/// the audit requires. Public inputs must be in snarkjs order.
+#[contractclient(name = "VerifierClient")]
+pub trait VerifierIface {
+    fn verify(
+        env: Env,
+        proof: Groth16Proof,
+        public_inputs: Vec<Bn254Fr>,
+    ) -> Result<bool, Groth16Error>;
+}
+
+/// The veil-pool shielded pool — the single source of truth for known Merkle roots.
+#[contractclient(name = "PoolClient")]
+pub trait PoolIface {
+    fn is_known_root(env: Env, root: U256) -> bool;
+}
+
 /// Vault configuration. v3: `borrow_verifier` is the deployed Groth16 verifier for the borrow/margin
 /// circuit; `veil_pool` is the shielded-pool contract whose root membership `borrow` checks. (No
 /// RISC Zero image id, no relayed-Ethereum-root admin — both replaced by the Soroban-native path.)
@@ -117,13 +144,13 @@ pub struct Pool {
 #[contracttype]
 #[derive(Clone)]
 pub struct Position {
-    pub position_id: soroban_sdk::BytesN<32>,
-    pub lock_handle: soroban_sdk::BytesN<32>,
+    pub position_id: U256, // circuit output (Poseidon field element)
+    pub lock_handle: U256, // circuit output
     pub borrower: Address,
     pub principal: i128,
     pub principal_scaled: i128,
     pub floor: u128,
-    pub root: soroban_sdk::U256,
+    pub root: U256,
     pub due_ledger: u32,
     pub status: u32,
 }
@@ -132,8 +159,8 @@ pub struct Position {
 enum DataKey {
     Config,
     Pool,
-    Position(BytesN<32>),
-    LockUsed(BytesN<32>),
+    Position(U256),
+    LockUsed(U256),
     Shares(Address),
     RepaidTree,     // Poseidon repaid-position tree R_sor (unlock circuit proves membership)
     LiquidatedTree, // Poseidon liquidated-position tree R_liq (seize circuit proves membership)
@@ -243,8 +270,101 @@ impl VeilVault {
         Ok(assets)
     }
 
+    /// Atomic verify-and-lend. A valid Circom→Groth16 borrow proof (verified by the deployed BN254
+    /// verifier) gates real USDC. `position_id`, `lock_handle`, `root`, `threshold` are the proof's
+    /// public signals; `borrower` binds the proof to the caller. Returns the principal disbursed.
+    pub fn borrow(
+        env: Env,
+        proof: Groth16Proof,
+        position_id: U256,
+        lock_handle: U256,
+        root: U256,
+        threshold: u128,
+        borrower: Address,
+    ) -> Result<i128, Error> {
+        borrower.require_auth();
+        let cfg = Self::cfg(&env)?;
+
+        // 1. Verify the proof against the public signals in SNARKJS ORDER
+        //    [positionId, lockHandle, root, threshold, borrower]. The borrower field is derived from
+        //    the caller, so a proof made for a different account won't verify (anti-replay). An
+        //    invalid proof or any mismatched public value TRAPS the whole call (fail-closed).
+        let bfield = Self::borrower_field(&env, &borrower);
+        let mut pi: Vec<Bn254Fr> = Vec::new(&env);
+        pi.push_back(Self::fr(&env, &position_id));
+        pi.push_back(Self::fr(&env, &lock_handle));
+        pi.push_back(Self::fr(&env, &root));
+        pi.push_back(Self::fr_u128(&env, threshold));
+        pi.push_back(Self::fr(&env, &bfield));
+        VerifierClient::new(&env, &cfg.borrow_verifier).verify(&proof, &pi);
+
+        // 2. The membership root must be a known veil-pool root (cross-contract single source).
+        if !PoolClient::new(&env, &cfg.veil_pool).is_known_root(&root) {
+            return Err(Error::UnknownRoot);
+        }
+        // 3. One lock -> one loan, FOREVER (the tree is append-only). Reject duplicate position.
+        if env.storage().persistent().has(&DataKey::LockUsed(lock_handle.clone())) {
+            return Err(Error::LockHandleUsed);
+        }
+        if env.storage().persistent().has(&DataKey::Position(position_id.clone())) {
+            return Err(Error::PositionExists);
+        }
+        if threshold < cfg.min_threshold {
+            return Err(Error::ThresholdTooLow);
+        }
+
+        // 4. Size the loan from the live Reflector price (reject a stale price).
+        let r = ReflectorClient::new(&env, &cfg.reflector);
+        let px = r.lastprice(&cfg.reflector_asset).ok_or(Error::NoPrice)?;
+        if env.ledger().timestamp().saturating_sub(px.timestamp) > MAX_PRICE_AGE_SECS {
+            return Err(Error::StalePrice);
+        }
+        let principal = size_loan(threshold, px.price, r.decimals(), cfg.ltv_bps);
+        if principal <= 0 {
+            return Err(Error::LoanTooSmall);
+        }
+
+        // 5. Draw from idle LP liquidity (accrue first so the index is current).
+        let mut pool = Self::pool(&env)?;
+        Self::accrue(&env, &mut pool, cfg.rate_bps);
+        if pool.total_idle < principal {
+            return Err(Error::InsufficientLiquidity);
+        }
+        let principal_scaled = principal.checked_mul(INDEX_SCALE).expect("ovf") / pool.borrow_index;
+
+        // 6. Record position + lock + pool deltas BEFORE the transfer (checks-effects-interactions).
+        let due = env.ledger().sequence() + cfg.term_ledgers;
+        let pos = Position {
+            position_id: position_id.clone(),
+            lock_handle: lock_handle.clone(),
+            borrower: borrower.clone(),
+            principal,
+            principal_scaled,
+            floor: threshold,
+            root: root.clone(),
+            due_ledger: due,
+            status: STATUS_ACTIVE,
+        };
+        pool.total_idle -= principal;
+        pool.total_borrowed_scaled += principal_scaled;
+        let pk = DataKey::Position(position_id.clone());
+        env.storage().persistent().set(&pk, &pos);
+        env.storage().persistent().set(&DataKey::LockUsed(lock_handle.clone()), &true);
+        Self::save_pool(&env, &pool);
+
+        // 7. Disburse real USDC to the borrower (interaction last).
+        token::TokenClient::new(&env, &cfg.usdc).transfer(
+            &env.current_contract_address(),
+            &borrower,
+            &principal,
+        );
+        Self::bump(&env, &pk);
+        Self::bump(&env, &DataKey::LockUsed(lock_handle));
+        Ok(principal)
+    }
+
     // ---- views ----
-    pub fn get_position(env: Env, position_id: soroban_sdk::BytesN<32>) -> Option<Position> {
+    pub fn get_position(env: Env, position_id: U256) -> Option<Position> {
         env.storage().persistent().get(&DataKey::Position(position_id))
     }
     pub fn get_pool(env: Env) -> Result<Pool, Error> {
@@ -256,7 +376,7 @@ impl VeilVault {
     pub fn shares_of(env: Env, who: Address) -> i128 {
         Self::share_balance(&env, &who)
     }
-    pub fn is_lock_used(env: Env, lock_handle: BytesN<32>) -> bool {
+    pub fn is_lock_used(env: Env, lock_handle: U256) -> bool {
         env.storage().persistent().has(&DataKey::LockUsed(lock_handle))
     }
     pub fn get_config(env: Env) -> Result<Config, Error> {
@@ -292,6 +412,29 @@ impl VeilVault {
     fn liquidated_tree(env: &Env) -> GatingTree {
         env.storage().instance().get(&DataKey::LiquidatedTree).expect("liquidated tree")
     }
+    /// A field-element value (Poseidon output / reduced hash) → BN254 scalar for a circuit public
+    /// input. All inputs here are already < r (Poseidon outputs, u128, or keccak-reduced), so the
+    /// 32-byte value is a canonical field element.
+    fn fr(env: &Env, v: &U256) -> Bn254Fr {
+        let b: BytesN<32> = v.to_be_bytes().try_into().expect("U256 is 32 bytes");
+        let _ = env;
+        Bn254Fr::from_bytes(b)
+    }
+    fn fr_u128(env: &Env, v: u128) -> Bn254Fr {
+        let mut b = [0u8; 32];
+        b[16..].copy_from_slice(&v.to_be_bytes());
+        Bn254Fr::from_bytes(BytesN::from_array(env, &b))
+    }
+    /// Bind a proof to the caller: `borrower = keccak256(strkey) mod r`. The prover must set the
+    /// circuit's `borrower` public signal to this exact value, so a stolen proof can't be redeemed
+    /// from another account (v2's anti-replay, ported to a field element).
+    fn borrower_field(env: &Env, who: &Address) -> U256 {
+        let strkey = who.to_string().to_bytes();
+        let h = env.crypto().keccak256(&strkey).to_bytes();
+        let hu = U256::from_be_bytes(env, &Bytes::from_array(env, &h.to_array()));
+        let r = U256::from_be_bytes(env, &Bytes::from_array(env, &BN254_R));
+        hu.rem_euclid(&r)
+    }
     fn save_pool(env: &Env, pool: &Pool) {
         env.storage().instance().set(&DataKey::Pool, pool);
     }
@@ -325,8 +468,23 @@ impl VeilVault {
         env.storage().persistent().set(&key, &(cur + delta));
         env.storage().persistent().extend_ttl(&key, BUMP_THRESHOLD, BUMP_AMOUNT);
     }
-    #[allow(dead_code)]
     fn bump(env: &Env, key: &DataKey) {
         env.storage().persistent().extend_ttl(key, BUMP_THRESHOLD, BUMP_AMOUNT);
     }
+}
+
+/// Size a loan in USDC (7 decimals) from a wstETH-unit threshold, a Reflector price, and an LTV —
+/// ported from vault-v2 `journal::size_loan`. Returns 0 on a non-positive price or a bad LTV (→
+/// LoanTooSmall in `borrow`, never a panic). `loan = (t/1e11)·px·ltv_bps / 10^(4+px_decimals)`.
+fn size_loan(t_units: u128, px: i128, px_decimals: u32, ltv_bps: u32) -> i128 {
+    if px <= 0 || ltv_bps == 0 || ltv_bps > 10_000 {
+        return 0;
+    }
+    let reduced = (t_units / 100_000_000_000u128) as i128; // t_units / 1e11
+    let num = match reduced.checked_mul(px).and_then(|n| n.checked_mul(ltv_bps as i128)) {
+        Some(n) => n,
+        None => return 0,
+    };
+    let denom = 10i128.pow(4 + px_decimals);
+    num / denom
 }

@@ -161,3 +161,228 @@ fn constructor_seeds_empty_gating_trees() {
     assert_eq!(f.vault.liquidated_count(), 0);
     assert_eq!(f.vault.repaid_root(), f.vault.liquidated_root(), "empty trees share the zero root");
 }
+
+// ---- borrow (unit 3): cross-contract verifier + veil-pool root ----
+//
+// The vault's borrow LOGIC is tested with a recording STUB verifier (returns Ok(true), captures the
+// public inputs) + a stub pool (configurable known root) + a mock oracle. The REAL Groth16 proof
+// verification is proven separately in Phase 3's on-chain cross-check; here we prove the vault builds
+// the right public-input vector (snarkjs order + borrower binding), gates on the pool root, and does
+// the lending accounting correctly.
+mod borrow {
+    use crate::{Asset, PriceData, VeilVault, VeilVaultClient};
+    use soroban_sdk::crypto::bn254::{Bn254Fr, Bn254G1Affine, Bn254G2Affine};
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{
+        contract, contractimpl, symbol_short, token, Address, Bytes, BytesN, Env, Symbol, Vec, U256,
+    };
+    use veil_verifier::{Groth16Error, Groth16Proof};
+
+    // Recording stub for the deployed borrow verifier: accepts any proof, stores the public inputs.
+    #[contract]
+    pub struct StubVerifier;
+    #[contractimpl]
+    impl StubVerifier {
+        pub fn verify(
+            env: Env,
+            proof: Groth16Proof,
+            public_inputs: Vec<Bn254Fr>,
+        ) -> Result<bool, Groth16Error> {
+            let _ = proof;
+            let mut rec: Vec<U256> = Vec::new(&env);
+            for fr in public_inputs.iter() {
+                rec.push_back(U256::from_be_bytes(
+                    &env,
+                    &Bytes::from_array(&env, &fr.to_bytes().to_array()),
+                ));
+            }
+            env.storage().instance().set(&symbol_short!("REC"), &rec);
+            Ok(true)
+        }
+        pub fn recorded(env: Env) -> Vec<U256> {
+            env.storage().instance().get(&symbol_short!("REC")).unwrap()
+        }
+    }
+
+    // Stub veil-pool: one configurable known root.
+    #[contract]
+    pub struct StubPool;
+    #[contractimpl]
+    impl StubPool {
+        pub fn set_known(env: Env, root: U256) {
+            env.storage().instance().set(&symbol_short!("K"), &root);
+        }
+        pub fn is_known_root(env: Env, root: U256) -> bool {
+            env.storage()
+                .instance()
+                .get::<Symbol, U256>(&symbol_short!("K"))
+                .map(|k| k == root)
+                .unwrap_or(false)
+        }
+    }
+
+    // Mock Reflector oracle: fixed fresh price, 8 decimals.
+    #[contract]
+    pub struct MockReflector;
+    #[contractimpl]
+    impl MockReflector {
+        pub fn lastprice(env: Env, _asset: Asset) -> Option<PriceData> {
+            Some(PriceData { price: 200_000_000_000i128, timestamp: env.ledger().timestamp() })
+        }
+        pub fn decimals(_env: Env) -> u32 {
+            8
+        }
+    }
+
+    struct Bx<'a> {
+        env: Env,
+        vault: VeilVaultClient<'a>,
+        usdc: token::TokenClient<'a>,
+        verifier_id: Address,
+        borrower: Address,
+        root: U256,
+    }
+
+    fn dummy_proof(env: &Env) -> Groth16Proof {
+        Groth16Proof {
+            a: Bn254G1Affine::from_bytes(BytesN::from_array(env, &[0u8; 64])),
+            b: Bn254G2Affine::from_bytes(BytesN::from_array(env, &[0u8; 128])),
+            c: Bn254G1Affine::from_bytes(BytesN::from_array(env, &[0u8; 64])),
+        }
+    }
+
+    fn setup_borrow() -> Bx<'static> {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let issuer = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(issuer);
+        let usdc = token::TokenClient::new(&env, &sac.address());
+        let usdc_admin = token::StellarAssetClient::new(&env, &sac.address());
+
+        let verifier_id = env.register(StubVerifier, ());
+        let pool_id = env.register(StubPool, ());
+        let reflector_id = env.register(MockReflector, ());
+
+        let root = U256::from_u32(&env, 777);
+        env.invoke_contract::<()>(
+            &pool_id,
+            &Symbol::new(&env, "set_known"),
+            soroban_sdk::vec![&env, root.clone().into_val(&env)],
+        );
+
+        let admin = Address::generate(&env);
+        let borrower = Address::generate(&env);
+        let id = env.register(
+            VeilVault,
+            (
+                admin,
+                verifier_id.clone(),
+                pool_id.clone(),
+                sac.address(),
+                reflector_id,
+                Asset::Other(Symbol::new(&env, "WSTETH")),
+                7000u32,       // ltv_bps
+                8000u32,       // liq_bps
+                1_000u128,     // min_threshold
+                100_000u32,    // term_ledgers
+                500u32,        // rate_bps
+            ),
+        );
+        let vault = VeilVaultClient::new(&env, &id);
+
+        // Fund the LP so there is idle liquidity to lend, and mint nothing to the borrower yet.
+        let lp = Address::generate(&env);
+        usdc_admin.mint(&lp, &100_000_000_000i128);
+        vault.lp_deposit(&lp, &100_000_000_000i128);
+
+        let _ = pool_id;
+        Bx { env, vault, usdc, verifier_id, borrower, root }
+    }
+
+    use soroban_sdk::IntoVal;
+
+    #[test]
+    fn borrow_verifies_gates_on_root_and_disburses() {
+        let b = setup_borrow();
+        let pid = U256::from_u32(&b.env, 111);
+        let lh = U256::from_u32(&b.env, 222);
+        let threshold = 1_000_000_000_000_000_000u128; // 1e18
+
+        let principal = b.vault.borrow(
+            &dummy_proof(&b.env),
+            &pid,
+            &lh,
+            &b.root,
+            &threshold,
+            &b.borrower,
+        );
+        assert!(principal > 0, "principal disbursed");
+        assert_eq!(b.usdc.balance(&b.borrower), principal, "borrower received USDC");
+
+        // Position recorded + lock consumed.
+        let pos = b.vault.get_position(&pid).unwrap();
+        assert_eq!(pos.floor, threshold);
+        assert_eq!(pos.principal, principal);
+        assert!(b.vault.is_lock_used(&lh));
+
+        // The verifier received public inputs in SNARKJS order: [pid, lh, root, threshold, borrower].
+        let rec = b.env.invoke_contract::<Vec<U256>>(
+            &b.verifier_id,
+            &Symbol::new(&b.env, "recorded"),
+            soroban_sdk::vec![&b.env],
+        );
+        assert_eq!(rec.get(0).unwrap(), pid, "pi[0]=positionId");
+        assert_eq!(rec.get(1).unwrap(), lh, "pi[1]=lockHandle");
+        assert_eq!(rec.get(2).unwrap(), b.root, "pi[2]=root");
+        assert_eq!(rec.get(3).unwrap(), U256::from_u128(&b.env, threshold), "pi[3]=threshold");
+        // pi[4] is the invoker-bound borrower field (non-zero, < r).
+        assert!(rec.get(4).unwrap() != U256::from_u32(&b.env, 0), "pi[4]=borrower field bound");
+    }
+
+    #[test]
+    fn borrow_rejects_unknown_root() {
+        let b = setup_borrow();
+        let r = b.vault.try_borrow(
+            &dummy_proof(&b.env),
+            &U256::from_u32(&b.env, 111),
+            &U256::from_u32(&b.env, 222),
+            &U256::from_u32(&b.env, 999), // not the configured known root
+            &1_000_000_000_000_000_000u128,
+            &b.borrower,
+        );
+        assert!(r.is_err(), "unknown root must be rejected");
+    }
+
+    #[test]
+    fn borrow_rejects_below_min_threshold() {
+        let b = setup_borrow();
+        let r = b.vault.try_borrow(
+            &dummy_proof(&b.env),
+            &U256::from_u32(&b.env, 111),
+            &U256::from_u32(&b.env, 222),
+            &b.root,
+            &500u128, // < min_threshold 1_000
+            &b.borrower,
+        );
+        assert!(r.is_err(), "below-min threshold must be rejected");
+    }
+
+    #[test]
+    fn borrow_rejects_reused_lock() {
+        let b = setup_borrow();
+        let lh = U256::from_u32(&b.env, 222);
+        let t = 1_000_000_000_000_000_000u128;
+        b.vault.borrow(&dummy_proof(&b.env), &U256::from_u32(&b.env, 111), &lh, &b.root, &t, &b.borrower);
+        // Same lock, different position id → LockHandleUsed.
+        let r = b.vault.try_borrow(
+            &dummy_proof(&b.env),
+            &U256::from_u32(&b.env, 333),
+            &lh,
+            &b.root,
+            &t,
+            &b.borrower,
+        );
+        assert!(r.is_err(), "a reused lock handle must be rejected");
+    }
+}
