@@ -1,0 +1,26 @@
+[package]
+name = "veil-verifier"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+# Standalone crate (not part of any parent workspace), mirroring veil-pool.
+[workspace]
+
+[lib]
+crate-type = ["lib", "cdylib"]
+doctest = false
+
+[dependencies]
+# `alloc` (not `hazmat`) — the BN254 Groth16 precompile lives in stable `crypto::bn254`.
+soroban-sdk = { version = "26", features = ["alloc"] }
+
+[build-dependencies]
+# Parse the snarkjs verification_key.json at build time and embed it as byte constants.
+ark-bn254 = { version = "0.6.0", default-features = false, features = ["curve"] }
+ark-ff = { version = "0.6.0", default-features = false }
+num-bigint = { version = "0.4.6", default-features = false }
+serde_json = "1"
+
+[dev-dependencies]
+soroban-sdk = { version = "26", features = ["alloc", "testutils"] }
