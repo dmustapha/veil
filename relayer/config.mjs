@@ -28,6 +28,9 @@ export const cfg = {
   escrow: escrowEnv.ESCROW_ADDRESS || "0xb833ffEc3C1a3A0aB71a9c014fD174bA7F1eBd6F",
   // v2 shielded note pool (Relayer A source); set at deploy time. Empty until VeilPool ships.
   veilPool: process.env.VEILPOOL_ADDRESS || escrowEnv.VEILPOOL_ADDRESS || "",
+  // v2 collateral token (MockWstETH); set at deploy time. Empty until it ships. Used by the
+  // anonymity seeder to mint + approve wstETH for decoy deposits.
+  wstETH: process.env.WSTETH_ADDRESS || escrowEnv.WSTETH_ADDRESS || "",
   // Stellar (Soroban testnet)
   network: "testnet",
   stellarSource: "veil-spike",
