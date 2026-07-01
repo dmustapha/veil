@@ -13,7 +13,7 @@ doctest = false
 
 [dependencies]
 # `alloc` (not `hazmat`) — the BN254 Groth16 precompile lives in stable `crypto::bn254`.
-soroban-sdk = { version = "26", features = ["alloc"] }
+soroban-sdk = { version = "=27.0.0-rc.1", features = ["alloc"] }
 
 [build-dependencies]
 # Parse the snarkjs verification_key.json at build time and embed it as byte constants.
@@ -23,7 +23,7 @@ num-bigint = { version = "0.4.6", default-features = false }
 serde_json = "1"
 
 [dev-dependencies]
-soroban-sdk = { version = "26", features = ["alloc", "testutils"] }
+soroban-sdk = { version = "=27.0.0-rc.1", features = ["alloc", "testutils"] }
 
 [profile.release]
 opt-level = "z"

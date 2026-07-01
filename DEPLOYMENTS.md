@@ -131,8 +131,8 @@ Circom→Groth16 (BN254) verifiers, one per joinsplit circuit, mirrored from Net
 `GABHHKTQVGUQPZMXYJIP6OESTUS6QQA3AICEQI77B4FORUW4CPIVFXIF`. Each embeds its own compile-time vkey
 (`circom/keys/<circuit>.vk.json`).
 
-- **borrow** verifier: `CACSCTTX4PYTATZJM5EJEE6TAHRHA5LWCSWNPDAQW5I5GVZND422BEMC`
-  - redeploy (2026-07-01, `overflow-checks` release profile, fresh build): `CBW4SZE4YCCVN7GNLUOO2Z2NOUDPALZBNAABAAX3CPLAD7WF3APPPVZU`
+- **borrow** verifier (current, sdk 27.0.0-rc.1 / protocol 27): `CBTSWUY5OME4EDY3YA7OBRXHVMSBZH4MWO4GSGNPR4FAGG36RGQGDMM2`
+  - superseded: `CACSCTTX4PYTATZJM5EJEE6TAHRHA5LWCSWNPDAQW5I5GVZND422BEMC` (sdk 26) · `CBW4SZE4YCCVN7GNLUOO2Z2NOUDPALZBNAABAAX3CPLAD7WF3APPPVZU` (sdk 26, overflow-checks)
 - **lock**   verifier: `CDI7H3POM5PMBNV6DCDXB4M4LD63QKF2EIBEBU4I73EOGN66254C6BM5`
 - **unlock** verifier: `CDU7ZXX4NLMH66ZHFDEVQJQCBCOK4VWF7FSTTF6KE2BVJKNAAKNSHXTL`
 - **seize**  verifier: `CAX3KGXJAO5YQ5EJ6EAJRI3NRFFC5CQIZYGNHO22B4ZLHSQGIQXZTUEP`
@@ -145,13 +145,10 @@ Circom→Groth16 (BN254) verifiers, one per joinsplit circuit, mirrored from Net
 ⚠️ Trusted setup is single-party (see `circom/ceremony.sh`) — testnet/demo only, NOT sound for real
 funds. Mainnet requires a multi-party ceremony.
 
-⚠️ **KNOWN ISSUE (2026-07-01, Phase-6 blocker):** the deployed BN254 verifier now TRAPS
-(`Error(WasmVm)=UnreachableCodeReached`) inside its `crypto::bn254` pairing path — reproducible via
-`web/scripts/verify-borrow-prover.ts` AND on the previously-verifying Phase-3 fixture bytes, on BOTH
-the original and the fresh `overflow-checks` redeploy. So it is not a regression in the client prover
-(which produces snarkjs-verifiable, correctly-encoded proofs — offline `true`) but a
-verifier/host-protocol incompatibility surfaced by a testnet protocol change or a soroban-sdk 26.x /
-CLI 25.x mismatch. To investigate in Phase 6: confirm current testnet protocol supports the bn254
-host fns as the crate calls them; check G2 `c1||c0` byte order + subgroup validation against the
-current host; rebuild against a matched sdk/CLI. The client-side proving pipeline (Phase 5) is proven
-offline and encoding-correct independent of this.
+### Client-side (browser) proof verified on-chain (Phase 5)
+A **browser-generated** Groth16 borrow proof (snarkjs `groth16.fullProve` over the vendored
+`borrow.wasm`+`borrow.zkey`) verifies on the live verifier: `verify(proof, public_inputs) → true`,
+tampered `public[4]` → `InvalidProof`. Reproduce: `cd web && pnpm verify:prover`.
+- Encoding: proof `{a,b,c}` = Bytes (G1 64B / G2 128B `c1||c0`); `public_inputs` = **Array<u256>**
+  (`Bn254Fr` marshals as ScVal::U256, not Bytes — the earlier trap was a client-side arg-encoding
+  bug, never a verifier fault). Rebuilt against soroban-sdk 27.0.0-rc.1 to match testnet protocol 27.

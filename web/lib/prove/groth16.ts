@@ -121,7 +121,12 @@ export function publicSignalsToBorrowArgs(publicSignals: string[]): BorrowPublic
   return { positionId, lockHandle, root, threshold, borrower };
 }
 
-/** The verifier's `Vec<Bn254Fr>` public inputs: each signal as a 32B BE field element, in order. */
-export function publicSignalsToFieldBytes(publicSignals: string[]): Uint8Array[] {
-  return publicSignals.map((s) => fieldBytes(s));
+/**
+ * The verifier's `Vec<Bn254Fr>` public inputs as bigints, in order. NOTE: on-chain, `Bn254Fr`
+ * marshals as an ScVal **U256** (not Bytes) — encode each with `nativeToScVal(v, { type: "u256" })`
+ * for a direct verifier call. (The vault's `borrow` takes position_id/lock_handle/root as U256 args
+ * and rebuilds this vector itself, so most callers use `publicSignalsToBorrowArgs` instead.)
+ */
+export function publicSignalsToU256(publicSignals: string[]): bigint[] {
+  return publicSignals.map((s) => BigInt(s));
 }

@@ -16,16 +16,13 @@ import {
   BASE_FEE,
   Contract,
   TransactionBuilder,
+  nativeToScVal,
   rpc,
   scValToNative,
   xdr,
 } from "@stellar/stellar-sdk";
 import { borrowerField, buildBorrowWitness, type MerklePath, type Note } from "../lib/prove/witness";
-import {
-  proveBorrow,
-  publicSignalsToFieldBytes,
-  toSorobanProof,
-} from "../lib/prove/groth16";
+import { proveBorrow, toSorobanProof } from "../lib/prove/groth16";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CIRCUITS = resolve(HERE, "../public/circuits/borrow");
@@ -33,7 +30,7 @@ const CANONICAL = resolve(HERE, "../../circom/borrow_input.json"); // known-good
 
 const SOROBAN_RPC = "https://soroban-testnet.stellar.org";
 const TESTNET_PASSPHRASE = "Test SDF Network ; September 2015";
-const BORROW_VERIFIER = "CBW4SZE4YCCVN7GNLUOO2Z2NOUDPALZBNAABAAX3CPLAD7WF3APPPVZU";
+const BORROW_VERIFIER = "CBTSWUY5OME4EDY3YA7OBRXHVMSBZH4MWO4GSGNPR4FAGG36RGQGDMM2";
 const SOURCE = "GABHHKTQVGUQPZMXYJIP6OESTUS6QQA3AICEQI77B4FORUW4CPIVFXIF"; // veil-spike (exists on testnet)
 
 function fail(msg: string): never {
@@ -62,7 +59,8 @@ function toVerifyArgs(proof: Parameters<typeof toSorobanProof>[0], publicSignals
     new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol("b"), val: scvBytes(sp.b) }),
     new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol("c"), val: scvBytes(sp.c) }),
   ]);
-  const publicScVal = xdr.ScVal.scvVec(publicSignalsToFieldBytes(publicSignals).map(scvBytes));
+  // public_inputs is Vec<Bn254Fr>, which marshals as Array<u256> (NOT Bytes) — pass scvU256.
+  const publicScVal = xdr.ScVal.scvVec(publicSignals.map((s) => nativeToScVal(BigInt(s), { type: "u256" })));
   return { proofScVal, publicScVal };
 }
 
@@ -111,35 +109,27 @@ async function main() {
   if (offline !== true) fail("snarkjs offline verify returned false");
   console.log("• snarkjs offline verify → true");
 
-  // 4. Live on-chain verify on the deployed borrow verifier (BEST-EFFORT / reported, not a gate).
-  //    Phase 5's bar is offline provability + correct on-chain encoding (steps 1-3). The live verify
-  //    is Phase 6's bar. As of 2026-07-01 the deployed BN254 verifier TRAPS
-  //    (Error(WasmVm)=UnreachableCodeReached) inside its bn254 pairing path even on the Phase-3
-  //    fixtures that previously verified — a verifier/protocol regression tracked as a Phase-6
-  //    blocker. We still attempt it and report, but don't fail the harness on it.
+  // 4. Live on-chain verify on the deployed borrow verifier — a REAL `true` from the network. The
+  //    proof struct marshals as { a,b,c: Bytes }; public_inputs marshal as Array<u256> (Bn254Fr →
+  //    ScVal::U256, NOT Bytes). A valid proof must verify; a tampered public signal must be rejected.
   const server = new rpc.Server(SOROBAN_RPC);
   const good = toVerifyArgs(proof, publicSignals);
   const sim = await server.simulateTransaction(verifyOp(good.proofScVal, good.publicScVal));
-  if (rpc.Api.isSimulationError(sim)) {
-    console.log(`⚠ on-chain verify unavailable (${sim.error.split("\n")[0]}) — Phase-6 verifier blocker`);
-  } else if (scValToNative(sim.result!.retval) !== true) {
-    console.log("⚠ on-chain verify returned non-true — Phase-6 verifier blocker");
-  } else {
-    console.log(`• on-chain verify (${BORROW_VERIFIER.slice(0, 8)}…) → true`);
-    // Only meaningful if the real proof verified: tamper must be rejected.
-    const tampered = [...publicSignals];
-    tampered[4] = (BigInt(tampered[4]) + 1n).toString();
-    const bad = toVerifyArgs(proof, tampered);
-    const simBad = await server.simulateTransaction(verifyOp(bad.proofScVal, bad.publicScVal));
-    const rejected =
-      rpc.Api.isSimulationError(simBad) || scValToNative(simBad.result!.retval) !== true;
-    if (!rejected) fail("tampered public signal was ACCEPTED on-chain (defense broken)");
-    console.log("• on-chain verify (tampered public[4]) → rejected (InvalidProof)");
-  }
+  if (rpc.Api.isSimulationError(sim)) fail(`on-chain verify errored on a REAL proof: ${sim.error}`);
+  if (scValToNative(sim.result!.retval) !== true) fail("on-chain verify returned non-true");
+  console.log(`• on-chain verify (${BORROW_VERIFIER.slice(0, 8)}…) → true`);
+
+  const tampered = [...publicSignals];
+  tampered[4] = (BigInt(tampered[4]) + 1n).toString();
+  const bad = toVerifyArgs(proof, tampered);
+  const simBad = await server.simulateTransaction(verifyOp(bad.proofScVal, bad.publicScVal));
+  const rejected = rpc.Api.isSimulationError(simBad) || scValToNative(simBad.result!.retval) !== true;
+  if (!rejected) fail("tampered public signal was ACCEPTED on-chain (defense broken)");
+  console.log("• on-chain verify (tampered public[4]) → rejected (InvalidProof)");
 
   console.log(
-    "\n✅ Phase-5 client-side borrow prover: proved in-process + snarkjs-verified + encoded to the" +
-      " on-chain byte format (positionId/root match the committed fixture).",
+    "\n✅ Client-side borrow prover: proved in-process → snarkjs-verified → verified TRUE on the live" +
+      " Soroban verifier (tamper rejected). ZK is load-bearing on-chain.",
   );
 }
 
