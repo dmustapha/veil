@@ -24,3 +24,9 @@ serde_json = "1"
 
 [dev-dependencies]
 soroban-sdk = { version = "26", features = ["alloc", "testutils"] }
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+lto = true
+codegen-units = 1
