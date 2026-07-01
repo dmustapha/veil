@@ -12,6 +12,10 @@ use soroban_sdk::{Env, U256};
 pub const DS_NOTE_AVAILABLE: u32 = 0x10;
 pub const DS_NOTE_LOCKED: u32 = 0x11;
 
+/// Nullifier-hash domain separation tag. DISTINCT from the note domains so a nullifier hash can
+/// never collide with a note commitment (mirrors circom `Nullifier`).
+pub const DS_NF: u32 = 0x20;
+
 /// Note commitment — a domain-separated chain of `Poseidon2(2)` over the opening fields, mirroring
 /// circom `NoteCommitment`:
 ///
@@ -34,4 +38,21 @@ pub fn note_commitment(
     let h1 = poseidon2_hash2(env, amount.clone(), spend_pk.clone(), Some(ds.clone()));
     let h2 = poseidon2_hash2(env, h1, blinding.clone(), Some(ds.clone()));
     poseidon2_hash2(env, h2, aux.clone(), Some(ds))
+}
+
+/// Key-derived, Penumbra-style nullifier — the client-side-provable port of v2's
+/// `SHA256(NF_TAG ‖ nk ‖ C ‖ leafIndex)` to a [`DS_NF`]-separated chain of `Poseidon2(2)`:
+///
+/// ```text
+/// nf = H( H(nk, C, DS_NF), leafIndex, DS_NF )      H = poseidon2_hash2
+/// ```
+///
+/// Unlinkable to the note without the nullifier key `nk`, deterministic given `(nk, C, leafIndex)`
+/// so a double-spend of the same note yields the same nullifier. Computed by the browser prover and
+/// note client (never on-chain); this reference exists to lock the circom cross-vector and to let
+/// off-chain Rust tooling reproduce the exact circuit hash. Mirrors circom `Nullifier`.
+pub fn nullifier(env: &Env, nk: &U256, commitment: &U256, leaf_index: &U256) -> U256 {
+    let ds = U256::from_u32(env, DS_NF);
+    let h1 = poseidon2_hash2(env, nk.clone(), commitment.clone(), Some(ds.clone()));
+    poseidon2_hash2(env, h1, leaf_index.clone(), Some(ds))
 }

@@ -248,6 +248,50 @@ mod note_commitment_test {
 }
 
 #[cfg(test)]
+mod nullifier_hash_test {
+    // Cross-impl vector for the key-derived nullifier HASH (circuit-only in v2 — computed in the
+    // browser prover + the note client, never on-chain). circom `Nullifier` on (nk=5, C=7,
+    // leafIndex=3) — compile `circom/nullifier_test.circom`, witness `circom/nullifier_input.json`;
+    // locked in circom/README.md — must byte-match the Soroban `notes::nullifier` reference. If the
+    // field order or the DS_NF-separated chain drifts, a lock/unlock/seize proof's published
+    // nullifier won't match what the pool's spend path expects.
+    use crate::notes::nullifier;
+    use soroban_sdk::{Bytes, Env, U256};
+
+    // circom Nullifier(nk=5, C=7, leafIndex=3).
+    const EXPECTED: [u8; 32] = [
+        0x0d, 0x0e, 0x7d, 0xc8, 0xc7, 0x92, 0xf3, 0x3c, 0x6c, 0xee, 0x9f, 0x8b, 0xfc, 0xd9, 0x5e,
+        0x5c, 0xca, 0xed, 0x25, 0x3c, 0xa1, 0x1d, 0xbf, 0x31, 0xaa, 0x7a, 0xf6, 0xb5, 0xd7, 0x90,
+        0x90, 0x13,
+    ];
+
+    #[test]
+    fn soroban_nullifier_matches_circom_vector() {
+        let env = Env::default();
+        let nk = U256::from_u32(&env, 5);
+        let commitment = U256::from_u32(&env, 7);
+        let leaf_index = U256::from_u32(&env, 3);
+        let nf = nullifier(&env, &nk, &commitment, &leaf_index);
+        let expected = U256::from_be_bytes(&env, &Bytes::from_array(&env, &EXPECTED));
+        assert_eq!(nf, expected, "nullifier must byte-match circom Nullifier");
+    }
+
+    #[test]
+    fn nullifier_is_domain_separated_from_commitment() {
+        // DS_NF (0x20) is distinct from the note domains (0x10/0x11), so a nullifier hash can never
+        // collide with a note commitment of the same first two inputs.
+        use crate::notes::{note_commitment, DS_NOTE_AVAILABLE};
+        let env = Env::default();
+        let a = U256::from_u32(&env, 5);
+        let b = U256::from_u32(&env, 7);
+        let zero = U256::from_u32(&env, 0);
+        let nf = nullifier(&env, &a, &b, &zero);
+        let c = note_commitment(&env, DS_NOTE_AVAILABLE, &a, &b, &zero, &zero);
+        assert!(nf != c, "nullifier domain must differ from note-commitment domain");
+    }
+}
+
+#[cfg(test)]
 mod nullifier_test {
     use crate::nullifiers::NullifierSet as N;
     use crate::TestHost;

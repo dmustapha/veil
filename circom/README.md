@@ -55,6 +55,24 @@ LOCKED     ds=0x11, amount=2e18, spendPk=2, blinding=1, aux=3
   = 0x1c7441b2dd964a0b1f0f22dc590351ced0082c6edf10f7cbe2871d0c29112f9a
 ```
 
+## Nullifier hash (`nullifier.circom`)
+Port of v2's SHA-256 `nullifier(nk, C, leafIndex)` to a `DS_NF`-separated chain of `Poseidon2(2)`:
+
+```
+nf = H( H(nk, C, DS_NF), leafIndex, DS_NF )      H = Poseidon2(2)
+DS_NF = 0x20   (distinct from the note domains 0x10/0x11 → no hash collides across roles)
+```
+
+Circuit-only in v2 (computed by the browser prover + note client, never on-chain); the Soroban
+`notes::nullifier` is a reference impl that locks the cross-vector. `Nullifier` on
+`(nk=5, C=7, leafIndex=3)` (compile `nullifier_test.circom`, witness `nullifier_input.json`;
+reproduced on Soroban in `nullifier_hash_test`):
+
+```
+0x0d0e7dc8c792f33c6cee9f8bfcd95e5ccaed253ca11dbf31aa7af6b5d7909013
+= 5905671021789640503695739615972304829318177619592056643404543986320060485651
+```
+
 ## Build (artifacts gitignored)
 ```
 circom compress_test.circom --r1cs --wasm --sym -o .
