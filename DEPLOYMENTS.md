@@ -123,3 +123,23 @@ Branch `v2-private-margin-lending`. Real Groth16 image_ids from CI run 284978501
 - admin veil-spike `GABHHKTQ…FXIF`
 
 Key txs: vault upload `f534b1b5`, deploy `f554a1f9`, init `8433aa4c`, add_root `d2042913`, lp_deposit `6e358361`.
+
+## Veil v3 (Soroban-native) — Groth16 verifiers (Stellar testnet)
+
+Circom→Groth16 (BN254) verifiers, one per joinsplit circuit, mirrored from Nethermind
+`circom-groth16-verifier` (native `crypto::bn254` precompile). Deployer: `veil-spike`
+`GABHHKTQVGUQPZMXYJIP6OESTUS6QQA3AICEQI77B4FORUW4CPIVFXIF`. Each embeds its own compile-time vkey
+(`circom/keys/<circuit>.vk.json`).
+
+- **borrow** verifier: `CACSCTTX4PYTATZJM5EJEE6TAHRHA5LWCSWNPDAQW5I5GVZND422BEMC`
+- **lock**   verifier: `CDI7H3POM5PMBNV6DCDXB4M4LD63QKF2EIBEBU4I73EOGN66254C6BM5`
+- **unlock** verifier: `CDU7ZXX4NLMH66ZHFDEVQJQCBCOK4VWF7FSTTF6KE2BVJKNAAKNSHXTL`
+- **seize**  verifier: `CAX3KGXJAO5YQ5EJ6EAJRI3NRFFC5CQIZYGNHO22B4ZLHSQGIQXZTUEP`
+
+### On-chain verification proof (ZK is load-bearing)
+- `borrow.verify(real proof, real public signals)` → **`true`** (on-chain).
+- `borrow.verify(same proof, tampered public[4]=borrower)` → **`Error(Contract, #0)` = InvalidProof**.
+- `seize.verify(real proof, real public signals)` → **`true`** (a gated circuit, on-chain).
+
+⚠️ Trusted setup is single-party (see `circom/ceremony.sh`) — testnet/demo only, NOT sound for real
+funds. Mainnet requires a multi-party ceremony.
