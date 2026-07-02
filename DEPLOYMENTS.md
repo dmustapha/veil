@@ -352,3 +352,24 @@ redeploy (THIS is the live set; the addresses above are superseded):**
   `0x6903206311608c7d73396c533bab95da1a35f8692f140db9f1105d562d84d7f9`, isLocked=true) → Axelar message
   to `stellar-2026-q1-2` + pool, **`is_invalid_destination_chain: false`, gas_paid: true** (now VALID +
   routing). Superseded (stale-chain) set: pool `CDF7WIYF…`, vault `CAZHJR7X…`, VeilEthLock `0x7d9F4a…`.
+
+### ✅ LIVE e2e COMPLETE — trust-minimized cross-chain, REAL WETH → REAL USDC (no trusted relayer)
+Axelar delivered the message end-to-end (confirm→approve; approve tx on Stellar `e7f363ea…`, message_id
+`0x6903…d7f9-3`, source_address `0xE114C79D…` checksummed). Then, all client-side:
+- **`set_eth_lock`** (pinned the checksummed VeilEthLock, verified against the gateway's on-chain
+  approved sourceAddress) tx `301e2e6c…`
+- **`execute`** (Axelar `validate_message` authenticated the message on-chain → note inserted) tx
+  `53737b44d385bcb77777c8d0bd18018dfebeec1e65b36a75b7d49a407500ffc9` — `AttestLock` leaf 0, commitment
+  `7530136…834832`, amount 2e15; `total_deposited` = 2e15. (First `execute` with the wrong message_id
+  format → `validate_message`→false→trap, 0 state — the authentication is exact.)
+- **client lock proof** → `veil-pool.lock` tx `d83536db…` — nullifier burned, LOCKED note leaf 1, root R1
+- **client borrow proof** → `veil-vault.borrow` tx
+  `61dafbc30c168b3254f32c864e55a37569c3d60762df0c2170ca8e0e8d51912b` → **REAL 1.1887167 USDC** disbursed
+  vault→spike (balance `0.0407498 → 1.2294665`)
+- **negative (ZK load-bearing):** same borrow proof + tampered `threshold` 1e15+1 → `Error(Contract,#0)`
+  InvalidProof, **0 USDC moved**.
+
+**Both original critiques resolved live:** collateral is REAL wrapped Sepolia ETH (no mock/mint); the
+cross-chain attestation is authenticated on-chain via **Axelar's decentralized validator set** (no
+trusted relayer, no state-root poster). ETH stays on Ethereum; only the authenticated `(C, amount)` +
+the shielded borrow proof cross over.
