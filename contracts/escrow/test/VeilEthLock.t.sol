@@ -47,6 +47,7 @@ contract VeilEthLockTest is Test {
     MockAxelarGasService internal gasSvc;
     address internal user = address(0xA11CE);
     string internal constant DEST = "CVEILPOOLSTELLARADDRESSSTRKEYPLACEHOLDER00000000000000000";
+    string internal constant CHAIN = "stellar-2026-q1-2";
 
     // --- REAL proof fixture (deposit_from_eth, ceremony zkey) ---
     uint256 internal constant AMOUNT = 2_000_000_000_000_000_000; // 2e18 = 0x1bc16d674ec80000
@@ -86,7 +87,7 @@ contract VeilEthLockTest is Test {
         gateway = new MockAxelarGateway();
         gasSvc = new MockAxelarGasService();
         lockContract = new VeilEthLock(address(weth), address(verifier), address(gateway), address(gasSvc));
-        lockContract.setDestination(DEST); // owner = this test contract
+        lockContract.setDestination(CHAIN, DEST); // owner = this test contract
         weth.mint(user, 10 ether);
         vm.prank(user);
         weth.approve(address(lockContract), type(uint256).max);
@@ -113,7 +114,7 @@ contract VeilEthLockTest is Test {
         vm.prank(user);
         lockContract.lock(AMOUNT, C, pA(), pB(), pC());
         assertEq(gateway.calls(), 1, "one Axelar callContract");
-        assertEq(gateway.lastChain(), "stellar-2025-q1", "destination chain");
+        assertEq(gateway.lastChain(), CHAIN, "destination chain");
         assertEq(gateway.lastDest(), DEST, "destination contract");
         assertEq(gateway.lastPayload(), abi.encode(C, AMOUNT), "payload = (C, amount)");
     }
@@ -169,9 +170,9 @@ contract VeilEthLockTest is Test {
             new VeilEthLock(address(weth), address(verifier), address(gateway), address(gasSvc));
         vm.prank(user);
         vm.expectRevert(VeilEthLock.NotOwner.selector);
-        fresh.setDestination(DEST);
-        fresh.setDestination(DEST); // owner = this
+        fresh.setDestination(CHAIN, DEST);
+        fresh.setDestination(CHAIN, DEST); // owner = this
         vm.expectRevert(VeilEthLock.DestinationAlreadySet.selector);
-        fresh.setDestination(DEST);
+        fresh.setDestination(CHAIN, DEST);
     }
 }

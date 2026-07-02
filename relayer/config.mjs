@@ -47,9 +47,11 @@ export const cfg = {
   // Axelar testnet contracts.
   axelarGatewaySepolia: "0xe432150cce91c13a887f7D836923d5597adD8E31",
   axelarGasServiceSepolia: "0xbE406F0189A0B4cf3A05C286473D23791Dd44Cc6",
-  axelarGatewayStellar: "CCSNWHMQSPTW4PS7L32OIMH7Z6NFNCKYZKNFSWRSYX7MK64KHBDZDT5I",
+  // Current Stellar testnet Amplifier deployment (from Axelar getChains — the gmp-example README's
+  // "stellar-2025-q1" is STALE; the chain name + gateway rotate each quarter, always re-verify).
+  axelarGatewayStellar: "CB2JYOOZPHO43R57TC5PXV22QICKIDC5NKRF62BZG2J6JYFUIQPIAYY3",
   sourceChainName: "ethereum-sepolia",
-  destChainName: "stellar-2025-q1",
+  destChainName: "stellar-2026-q1-2",
   axelarscan: "https://testnet.axelarscan.io/gmp/",
 };
 

@@ -68,11 +68,12 @@ contract VeilEthLock {
     IAxelarGateway public immutable gateway;
     IAxelarGasService public immutable gasService;
 
-    /// @notice Axelar's registered chain name for the Soroban destination (Stellar testnet).
-    string public constant DESTINATION_CHAIN = "stellar-2025-q1";
-
     /// @notice Deploy-time owner; the only address allowed to set the destination once.
     address public immutable owner;
+    /// @notice Axelar's registered chain name for the Soroban destination. SETTABLE (not a constant),
+    ///         because Amplifier chain names rotate (e.g. `stellar-2026-q1-2`); pinning it in bytecode
+    ///         would force a redeploy on every rotation.
+    string public destinationChain;
     /// @notice The Soroban veil-pool address (strkey string) messages are sent to. Set once, after the
     ///         pool is deployed (resolves the pool↔lock address cycle — the pool pins THIS contract's
     ///         address in its constructor, so the pool must exist before we can point at it). Safety
@@ -92,7 +93,7 @@ contract VeilEthLock {
     uint256 public totalLocked;
 
     event Locked(uint256 indexed commitment, uint256 amount, address indexed owner);
-    event DestinationSet(string destinationContract);
+    event DestinationSet(string destinationChain, string destinationContract);
 
     error ZeroAmount();
     error CommitmentAlreadyLocked();
@@ -110,12 +111,16 @@ contract VeilEthLock {
         owner = msg.sender;
     }
 
-    /// @notice One-time: point this lock at the deployed Soroban veil-pool (strkey string).
-    function setDestination(string calldata destinationContract_) external {
+    /// @notice One-time: point this lock at the deployed Soroban veil-pool via Axelar — the Amplifier
+    ///         destination chain name (e.g. `stellar-2026-q1-2`) and the pool's strkey.
+    function setDestination(string calldata destinationChain_, string calldata destinationContract_)
+        external
+    {
         if (msg.sender != owner) revert NotOwner();
         if (bytes(destinationContract).length != 0) revert DestinationAlreadySet();
+        destinationChain = destinationChain_;
         destinationContract = destinationContract_;
-        emit DestinationSet(destinationContract_);
+        emit DestinationSet(destinationChain_, destinationContract_);
     }
 
     /// @notice Lock `amount` WETH bound to note commitment `C`, and emit the `(C, amount)` attestation
@@ -149,10 +154,10 @@ contract VeilEthLock {
         bytes memory payload = abi.encode(C, amount);
         if (msg.value > 0) {
             gasService.payNativeGasForContractCall{value: msg.value}(
-                address(this), DESTINATION_CHAIN, destinationContract, payload, msg.sender
+                address(this), destinationChain, destinationContract, payload, msg.sender
             );
         }
-        gateway.callContract(DESTINATION_CHAIN, destinationContract, payload);
+        gateway.callContract(destinationChain, destinationContract, payload);
     }
 
     function isLocked(uint256 C) external view returns (bool) {
