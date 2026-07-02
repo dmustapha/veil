@@ -50,6 +50,18 @@ pub struct Spent {
     pub commitment: U256,
 }
 
+/// Emitted on every relayer attestation of an Ethereum-backed lock (cross-chain deposit). Public
+/// like a normal deposit: the leaf index (topic), its commitment, and the WETH amount it is backed by.
+#[cfg(feature = "contract")]
+#[contractevent]
+#[derive(Clone)]
+pub struct AttestLock {
+    #[topic]
+    pub index: u32,
+    pub commitment: U256,
+    pub amount: i128,
+}
+
 /// Instance config keys.
 #[cfg(feature = "contract")]
 #[contracttype]
@@ -67,6 +79,18 @@ enum ConfigKey {
     SeizeVerifier,
     /// The veil-vault, source of the repaid/liquidated gating roots that unlock/seize prove against.
     Vault,
+    /// The cross-chain relayer allowed to call `attest_lock` (mirrors real Ethereum WETH locks).
+    Relayer,
+}
+
+/// Persistent guard against double-attesting the same Ethereum-backed commitment. Presence means the
+/// commitment was already mirrored into the tree — re-attesting it would mint a second note backed by
+/// one Ethereum lock (each leaf gets a distinct nullifier via its index → double-borrow). See 7e.
+#[cfg(feature = "contract")]
+#[contracttype]
+#[derive(Clone)]
+enum AttestKey {
+    Attested(U256),
 }
 
 /// A deployed Groth16 verifier. `verify` returns `Ok(true)` on a valid proof and TRAPS (reverts) on
@@ -156,6 +180,53 @@ impl VeilPool {
         );
         env.storage().instance().set(&ConfigKey::Vault, &vault);
         env.storage().instance().extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
+    }
+
+    /// Bind the cross-chain relayer allowed to call `attest_lock`. Admin-gated and ONE-TIME (mirrors
+    /// `set_vault`): the relayer mirrors real Ethereum WETH locks into this pool, so the binding must
+    /// not be swappable after deploy.
+    pub fn set_relayer(env: Env, relayer: Address) {
+        let admin: Address =
+            env.storage().instance().get(&ConfigKey::Admin).expect("not initialized");
+        admin.require_auth();
+        assert!(
+            !env.storage().instance().has(&ConfigKey::Relayer),
+            "relayer already set"
+        );
+        env.storage().instance().set(&ConfigKey::Relayer, &relayer);
+        env.storage().instance().extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
+    }
+
+    /// Cross-chain deposit: mirror a real Ethereum WETH lock into the pool. The relayer (having
+    /// observed a `VeilEthLock.Locked(commitment, amount, …)` event on Sepolia — where an on-chain
+    /// Groth16 opening proof already bound `commitment` to exactly `amount`) inserts the AVAILABLE
+    /// note `commitment` into the tree and records `amount` as backing (the pool's solvency floor).
+    /// NO Stellar token is escrowed — the collateral is the Ethereum lock. Relayer-gated and
+    /// idempotent per commitment (a re-attest of the same lock is rejected, else one Ethereum lock
+    /// would mint two borrowable notes). Returns the leaf index.
+    pub fn attest_lock(env: Env, commitment: U256, amount: i128) -> u32 {
+        let relayer: Address =
+            env.storage().instance().get(&ConfigKey::Relayer).expect("relayer not set");
+        relayer.require_auth();
+        assert!(amount > 0, "amount must be positive");
+        Self::require_canonical(&env, &commitment);
+
+        // One attestation per commitment (matches VeilEthLock's one-lock-per-commitment).
+        let ak = AttestKey::Attested(commitment.clone());
+        assert!(!env.storage().persistent().has(&ak), "commitment already attested");
+
+        let index = MerkleTreeWithHistory::insert_leaf(&env, commitment.clone()).expect("insert");
+
+        let total: i128 = env.storage().instance().get(&ConfigKey::TotalDeposited).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&ConfigKey::TotalDeposited, &total.checked_add(amount).expect("overflow"));
+        env.storage().persistent().set(&ak, &true);
+        ttl::bump(&env, &ak);
+        env.storage().instance().extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
+
+        AttestLock { index, commitment, amount }.publish(&env);
+        index
     }
 
     /// Escrow `amount` of collateral and insert its AVAILABLE note commitment.
@@ -961,6 +1032,98 @@ mod deposit_test {
 
         let too_big = U256::from_be_bytes(&env, &soroban_sdk::Bytes::from_array(&env, &[0xFFu8; 32]));
         pool.deposit(&user, &500i128, &too_big, &U256::from_u32(&env, 1));
+    }
+}
+
+#[cfg(test)]
+mod attest_test {
+    use crate::merkle_with_history::MerkleTreeWithHistory as T;
+    use crate::{TestHost, VeilPool, VeilPoolClient};
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{Address, Env, U256};
+
+    fn new_pool(env: &Env) -> VeilPoolClient<'static> {
+        let sac = env.register_stellar_asset_contract_v2(Address::generate(env));
+        let id = env.register(
+            VeilPool,
+            (
+                Address::generate(env),
+                sac.address(),
+                16u32,
+                Address::generate(env),
+                Address::generate(env),
+                Address::generate(env),
+            ),
+        );
+        VeilPoolClient::new(env, &id)
+    }
+
+    #[test]
+    fn attest_lock_inserts_backs_and_is_provable() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let pool = new_pool(&env);
+        pool.set_relayer(&Address::generate(&env));
+
+        let c = U256::from_u32(&env, 12345);
+        let amount = 2_000_000_000_000_000i128;
+        let idx = pool.attest_lock(&c, &amount);
+
+        assert_eq!(idx, 0, "first attested leaf at index 0");
+        assert_eq!(pool.total_deposited(), amount, "amount recorded as backing");
+
+        // The attested commitment IS the leaf: a fresh tree with just `c` reaches the same root, so
+        // the existing lock/borrow membership circuits can prove it (no Stellar escrow required).
+        let root = pool.root();
+        assert!(pool.is_known_root(&root));
+        let id2 = env.register(TestHost, ());
+        env.as_contract(&id2, || T::init(&env, 16).unwrap());
+        env.as_contract(&id2, || T::insert_leaf(&env, c.clone()).unwrap());
+        let expected = env.as_contract(&id2, || T::get_last_root(&env).unwrap());
+        assert_eq!(root, expected, "attested leaf is the note commitment");
+    }
+
+    #[test]
+    #[should_panic(expected = "commitment already attested")]
+    fn attest_lock_rejects_double_attest() {
+        // One Ethereum lock → one note. Re-attesting the same commitment would mint a second
+        // borrowable note (distinct nullifier per leaf index) backed by one lock → double-borrow.
+        let env = Env::default();
+        env.mock_all_auths();
+        let pool = new_pool(&env);
+        pool.set_relayer(&Address::generate(&env));
+        let c = U256::from_u32(&env, 12345);
+        pool.attest_lock(&c, &1_000i128);
+        pool.attest_lock(&c, &1_000i128);
+    }
+
+    #[test]
+    #[should_panic(expected = "relayer not set")]
+    fn attest_lock_requires_relayer_configured() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let pool = new_pool(&env);
+        pool.attest_lock(&U256::from_u32(&env, 1), &1_000i128);
+    }
+
+    #[test]
+    #[should_panic(expected = "relayer already set")]
+    fn set_relayer_is_one_time() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let pool = new_pool(&env);
+        pool.set_relayer(&Address::generate(&env));
+        pool.set_relayer(&Address::generate(&env));
+    }
+
+    #[test]
+    #[should_panic(expected = "amount must be positive")]
+    fn attest_lock_rejects_nonpositive_amount() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let pool = new_pool(&env);
+        pool.set_relayer(&Address::generate(&env));
+        pool.attest_lock(&U256::from_u32(&env, 1), &0i128);
     }
 }
 
