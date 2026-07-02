@@ -6,6 +6,36 @@ import {VeilEthLock} from "../src/VeilEthLock.sol";
 import {DepositFromEthVerifier} from "../src/DepositFromEthVerifier.sol";
 import {MockWstETH} from "../src/MockWstETH.sol";
 
+/// Records the Axelar gateway callContract args so tests can assert the cross-chain attestation.
+contract MockAxelarGateway {
+    string public lastChain;
+    string public lastDest;
+    bytes public lastPayload;
+    uint256 public calls;
+
+    function callContract(string calldata c, string calldata d, bytes calldata p) external {
+        lastChain = c;
+        lastDest = d;
+        lastPayload = p;
+        calls++;
+    }
+}
+
+/// Records native gas prepaid for the cross-chain call.
+contract MockAxelarGasService {
+    uint256 public gasPaid;
+
+    function payNativeGasForContractCall(
+        address,
+        string calldata,
+        string calldata,
+        bytes calldata,
+        address
+    ) external payable {
+        gasPaid += msg.value;
+    }
+}
+
 /// Exercises VeilEthLock against the REAL snarkjs-exported deposit_from_eth verifier, using a REAL
 /// Groth16 proof fixture (from `snarkjs zkey export soliditycalldata` over the ceremony zkey). The
 /// canonical opening: amount = 2e18, C = the AVAILABLE note commitment 0x01c209ef… (circom/README.md).
@@ -13,7 +43,10 @@ contract VeilEthLockTest is Test {
     VeilEthLock internal lockContract;
     MockWstETH internal weth;
     DepositFromEthVerifier internal verifier;
+    MockAxelarGateway internal gateway;
+    MockAxelarGasService internal gasSvc;
     address internal user = address(0xA11CE);
+    string internal constant DEST = "CVEILPOOLSTELLARADDRESSSTRKEYPLACEHOLDER00000000000000000";
 
     // --- REAL proof fixture (deposit_from_eth, ceremony zkey) ---
     uint256 internal constant AMOUNT = 2_000_000_000_000_000_000; // 2e18 = 0x1bc16d674ec80000
@@ -50,10 +83,14 @@ contract VeilEthLockTest is Test {
     function setUp() public {
         verifier = new DepositFromEthVerifier();
         weth = new MockWstETH();
-        lockContract = new VeilEthLock(address(weth), address(verifier));
+        gateway = new MockAxelarGateway();
+        gasSvc = new MockAxelarGasService();
+        lockContract = new VeilEthLock(address(weth), address(verifier), address(gateway), address(gasSvc));
+        lockContract.setDestination(DEST); // owner = this test contract
         weth.mint(user, 10 ether);
         vm.prank(user);
         weth.approve(address(lockContract), type(uint256).max);
+        vm.deal(user, 1 ether); // for gas prepayment tests
     }
 
     function test_realProof_locksAndEscrows() public {
@@ -65,11 +102,27 @@ contract VeilEthLockTest is Test {
         assertEq(weth.balanceOf(address(lockContract)), AMOUNT, "WETH escrowed");
         assertEq(weth.balanceOf(user), 10 ether - AMOUNT, "WETH left the user");
         assertEq(lockContract.totalLocked(), AMOUNT, "solvency floor");
-        (uint256 amt, address owner, uint64 bn) = lockContract.locks(C);
+        (uint256 amt, address owner_, uint64 bn) = lockContract.locks(C);
         assertEq(amt, AMOUNT, "lock amount");
-        assertEq(owner, user, "lock owner");
+        assertEq(owner_, user, "lock owner");
         assertGt(bn, 0, "block recorded");
         assertTrue(lockContract.isLocked(C), "isLocked");
+    }
+
+    function test_realProof_emitsAxelarAttestation() public {
+        vm.prank(user);
+        lockContract.lock(AMOUNT, C, pA(), pB(), pC());
+        assertEq(gateway.calls(), 1, "one Axelar callContract");
+        assertEq(gateway.lastChain(), "stellar-2025-q1", "destination chain");
+        assertEq(gateway.lastDest(), DEST, "destination contract");
+        assertEq(gateway.lastPayload(), abi.encode(C, AMOUNT), "payload = (C, amount)");
+    }
+
+    function test_lock_prepaysAxelarGasWhenValueSent() public {
+        vm.prank(user);
+        lockContract.lock{value: 0.01 ether}(AMOUNT, C, pA(), pB(), pC());
+        assertEq(gasSvc.gasPaid(), 0.01 ether, "gas prepaid to service");
+        assertEq(gateway.calls(), 1, "call still made");
     }
 
     function test_rejectsTamperedProof() public {
@@ -79,10 +132,10 @@ contract VeilEthLockTest is Test {
         vm.expectRevert(); // verifier rejects (revert or false) → lock reverts
         lockContract.lock(AMOUNT, C, badA, pB(), pC());
         assertEq(weth.balanceOf(address(lockContract)), 0, "no WETH moved");
+        assertEq(gateway.calls(), 0, "no Axelar call on failure");
     }
 
     function test_rejectsWrongAmount_lockLessThanCommitted() public {
-        // The proof binds C to 2e18; claiming a different amount changes the public input → invalid.
         vm.prank(user);
         vm.expectRevert(VeilEthLock.InvalidOpeningProof.selector);
         lockContract.lock(AMOUNT - 1, C, pA(), pB(), pC());
@@ -101,5 +154,24 @@ contract VeilEthLockTest is Test {
         vm.prank(user);
         vm.expectRevert(VeilEthLock.ZeroAmount.selector);
         lockContract.lock(0, C, pA(), pB(), pC());
+    }
+
+    function test_rejectsWhenDestinationUnset() public {
+        VeilEthLock fresh =
+            new VeilEthLock(address(weth), address(verifier), address(gateway), address(gasSvc));
+        vm.prank(user);
+        vm.expectRevert(VeilEthLock.DestinationUnset.selector);
+        fresh.lock(AMOUNT, C, pA(), pB(), pC());
+    }
+
+    function test_setDestination_isOwnerOnlyAndOnce() public {
+        VeilEthLock fresh =
+            new VeilEthLock(address(weth), address(verifier), address(gateway), address(gasSvc));
+        vm.prank(user);
+        vm.expectRevert(VeilEthLock.NotOwner.selector);
+        fresh.setDestination(DEST);
+        fresh.setDestination(DEST); // owner = this
+        vm.expectRevert(VeilEthLock.DestinationAlreadySet.selector);
+        fresh.setDestination(DEST);
     }
 }
