@@ -321,3 +321,17 @@ borrow (client-side ZK, verified natively on Soroban) is unchanged.
   Axelar `ContractCall` + 0.01 ETH gas): tx `0xf68a6171d74996031bb0fd47e7fdefe2634ecce06321c547eba3a384e6f3bf24`
   (block 11187841), payload `(C_available, 2e15)` → pool. Awaiting Axelar confirm→approve→`execute`
   (testnet Amplifier confirmation is slow); then `set_eth_lock` + client lock+borrow → REAL USDC.
+- **Confirmed ready (on-chain):** pool `total_deposited` 0 (fresh, awaiting the note), vault
+  `total_assets` 17000000, VeilEthLock `isLocked(C)`=true / `totalLocked` 2e15. **Live negative:** a
+  direct forged `execute` (fake message_id / `source_address` 0xEVIL) traps (`Error(Storage,
+  MissingValue)` — the gateway holds no such approved message) → no note minted. Only an
+  Axelar-authenticated message from the pinned VeilEthLock can insert a note.
+- **Security-auditor** (agentId a2b498694a86018b6) on the Axelar surface: **NO CRITICAL/HIGH**.
+  `validate_message` binds the destination (approval hash includes `caller`=pool) + replay (flips to
+  Executed); the `source_chain`/`source_address` asserts are the security-critical gate and are
+  present; the opening proof is necessary + kept; payload decode + i128 guard safe; double-mint
+  impossible; CEI clean; `execute` fail-closed until `set_eth_lock`. H-01 = operational (verify the
+  pinned `EthLockAddr` byte-equals Axelar's EIP-55 form of `0x7d9F4aC8…` — done at pin time via
+  `is_message_approved`). Trust = Axelar validator set (inherent/documented) + single-party ceremony
+  (testnet-only). Axelar's legacy JS recovery SDK cannot relay this leg ("cannot find chain
+  stellar-2025-q1" — Amplifier route); delivery is by Axelar's own relayers.
