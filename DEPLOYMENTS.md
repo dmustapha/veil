@@ -241,3 +241,46 @@ The ETH never leaves Ethereum — only `(commitment, amount)` (via relayer) + th
     one ~1.13 USDC demo loan at the 6d threshold scale.
 - Relayer wiring: `relayer/config.mjs` fallbacks + `contracts/escrow/.env` set `ethLock` /
   `poolV3` / `VEIL_VAULT_V3`. Run `cd relayer && node eth-lock-relayer.mjs` (one-shot) or `--watch`.
+
+### Phase 7g — LIVE cross-chain e2e (real Sepolia WETH → REAL USDC, every proof client-side)
+The full lifecycle ran end-to-end across both chains. The collateral is REAL WETH locked on Sepolia;
+only the note commitment + amount cross to Stellar (via the relayer) and the shielded borrow proof
+proceeds there. Reuses the 6d note (amount 2e15, nk=5) so the existing client lock/borrow provers are
+unchanged — ONLY the deposit backing changed from a Stellar token escrow to a real Ethereum lock.
+
+**Ethereum (Sepolia) — the collateral lock, opening proof verified on-chain:**
+- opening proof (`deposit_from_eth`) generated client-side for the 6d note (`amount 2e15`, spendPk
+  H1(nk=5), blinding 1) → `C_available` `7530136360…834832`; **verified `true` on the live
+  DepositFromEthVerifier** (`verifyProof` view call) before locking.
+- mint 1 WETH → deployer tx `0x814c33ec0218c4d6442bfcd169971c5fcd5af4724f47ef9c2b64abaf064c431c`
+- approve VeilEthLock tx `0x8f0a3f3f57b4b4444fceb5929aec9a2e5e9f2e877a5c86fd85c93e94ad826de6`
+- **lock 2e15 wei WETH** bound to `C_available` (opening proof verified in `VeilEthLock.lock`) tx
+  `0xc345e1b10b2e71e2e60afd0a7198bc7d9a04c9c6b80a23c82a323b1707f7c1bb` (block 11185144) — `Locked`
+  event emitted, `totalLocked` = 2e15, `isLocked(C)` = true. Real WETH escrowed on Ethereum.
+
+**Soroban (testnet) — relayer mirror + shielded lock→borrow:**
+- **attest_lock** (relayer `eth-lock-relayer.mjs`, source veil-spike) tx
+  `0b40c7555a9d981adb321b70ebf8f6d86a2c9c2e5cf156ec32164b10240cf065` — `AttestLock` event, leaf 0,
+  `commitment` = `C_available`, `amount` 2e15 → AVAILABLE note in the tree, `total_deposited` = 2e15
+  (backing = the Ethereum lock; NO Stellar escrow). Pool root R0 `12581396…395474`.
+- **lock** (CLIENT-generated Groth16 proof, verified on-chain by lock verifier `CD4LXCNP…SH6B`) tx
+  `7535509317e8a3fb421a633f89e5459c1fe1102e05d55fc3b079d78d1846756e` — `Spent` event, nullifier
+  `6332296964…397117` burned, LOCKED note at leaf 1 (`C_locked` `6113537084…003631`); new root R1
+  `3145978733…315431`.
+- **borrow** (CLIENT-generated Groth16 proof, verified on-chain by borrow verifier `CBTSWUY5…DMM2`;
+  positionId `6878142553…057766`, lockHandle `6303898728…007978`, threshold 1e15) tx
+  `77239a68fbe65277b21b0d032cc486f1ec9bfdee4f7b0ce4585f4aaf8ce7ba70` → **REAL 1.1377326 USDC
+  disbursed** vault→veil-spike (spike USDC `0.6030172 → 1.7407498`; live ETH price sized it slightly
+  above 6d's 1.134). Position ACTIVE, `debt_of` 11377327. Amount (2e15) stays hidden; only the 1e15
+  floor is disclosed.
+
+**Negatives (both proven live):**
+- **cross-chain injection gate** — `attest_lock` from a non-relayer source (`buyer`) is rejected: the
+  contract requires the bound relayer (veil-spike) `require_auth`, which `buyer` cannot forge. Only the
+  bound relayer can mirror an Ethereum lock into the pool.
+- **borrow binding** — the same borrow proof with a tampered `threshold` (1e15+1, an unproven floor)
+  → the vault's verify call returns `Error(Contract, #0)` = InvalidProof → VM trap → **0 USDC moved**
+  (simulation failed, never submitted). The proof binds the exact floor.
+
+The ETH never left Ethereum; only `(commitment, amount)` (relayer) + the shielded borrow proof
+(Stellar) crossed over. Every ZK proof was generated client-side and verified on-chain.
