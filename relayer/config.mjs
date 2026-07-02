@@ -38,6 +38,13 @@ export const cfg = {
   vault: "CDPYUWKD5OTYVWK6C3FQC2OEB3XK4DRAI7WJ5C3XQW6TY3UV2JQWFX2D",
   // v2 lending vault (Relayer A target); set at deploy time. Empty until VeilVault v2 ships.
   vaultV2: process.env.VAULT_V2_ID || escrowEnv.VAULT_V2_ID || "",
+  // --- v3 cross-chain collateral (eth-lock relayer) ---
+  // Sepolia VeilEthLock (emits Locked(commitment, amount, owner)); set at deploy time (7f).
+  ethLock: process.env.VEIL_ETH_LOCK || escrowEnv.VEIL_ETH_LOCK || "",
+  // v3 Soroban veil-pool (attest_lock target); set at deploy time (7f).
+  poolV3: process.env.VEIL_POOL_V3 || escrowEnv.VEIL_POOL_V3 || "",
+  // The Stellar identity bound via veil-pool.set_relayer (defaults to the admin for the demo).
+  relayerSource: process.env.RELAYER_SOURCE || "veil-spike",
 };
 
 export function cast(args) {

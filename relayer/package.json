@@ -11,6 +11,7 @@
     "soroban-root": "node soroban-root-relayer.mjs",
     "liquidated-root": "node liquidated-root-relayer.mjs",
     "seed-anonymity": "node anonymity-seeder.mjs",
+    "eth-lock": "node eth-lock-relayer.mjs",
     "test": "node --test"
   }
 }
