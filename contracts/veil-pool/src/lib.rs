@@ -189,7 +189,6 @@ impl VeilPool {
         seize_verifier: Address,
         axelar_gateway: Address,
         source_chain: String,
-        eth_lock_addr: String,
     ) {
         let s = env.storage().instance();
         s.set(&ConfigKey::Admin, &admin);
@@ -198,15 +197,32 @@ impl VeilPool {
         s.set(&ConfigKey::LockVerifier, &lock_verifier);
         s.set(&ConfigKey::UnlockVerifier, &unlock_verifier);
         s.set(&ConfigKey::SeizeVerifier, &seize_verifier);
-        // Cross-chain attestation config, pinned atomically at deploy (no post-deploy swap window):
-        // `execute` only mints a note for an Axelar-authenticated message from this exact
-        // (source_chain, eth_lock_addr). Safety-critical — a mutable origin would let a wrong source
-        // forge notes.
+        // Cross-chain attestation config. The Axelar gateway + source chain are known at deploy; the
+        // Sepolia VeilEthLock `source_address` is pinned post-deploy via `set_eth_lock` (its exact
+        // string format is whatever Axelar's verifier delivers — see set_eth_lock). `execute` is
+        // fail-closed until it is pinned, so there is no window in which a note can be minted from an
+        // unverified origin.
         s.set(&ConfigKey::AxelarGateway, &axelar_gateway);
         s.set(&ConfigKey::SourceChain, &source_chain);
-        s.set(&ConfigKey::EthLockAddr, &eth_lock_addr);
         s.extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
         MerkleTreeWithHistory::init(&env, levels).expect("init");
+    }
+
+    /// Pin the Sepolia VeilEthLock's `source_address` — the ONLY origin `execute` accepts. Admin-gated
+    /// and ONE-TIME (mirrors `set_vault`): the exact string is the address as Axelar's verifier
+    /// delivers it (observed from the first real message, since the checksum/lowercase form is set
+    /// off-chain), so it is pinned after deploy rather than in the constructor. Once set it cannot be
+    /// swapped, and `execute` rejects every message until it is set — so there is no unsafe window.
+    pub fn set_eth_lock(env: Env, eth_lock_addr: String) {
+        let admin: Address =
+            env.storage().instance().get(&ConfigKey::Admin).expect("not initialized");
+        admin.require_auth();
+        assert!(
+            !env.storage().instance().has(&ConfigKey::EthLockAddr),
+            "eth_lock already set"
+        );
+        env.storage().instance().set(&ConfigKey::EthLockAddr, &eth_lock_addr);
+        env.storage().instance().extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
     }
 
     /// Bind the veil-vault whose gating roots unlock/seize prove against. Admin-gated and ONE-TIME
@@ -614,7 +630,6 @@ mod spend_test {
                 verifier.clone(),
                 Address::generate(&env),
                 String::from_str(&env, "ethereum-sepolia"),
-                String::from_str(&env, "0xETHLOCK"),
             ),
         );
         let pool = VeilPoolClient::new(&env, &id);
@@ -1040,7 +1055,7 @@ mod deposit_test {
         let coin_admin = token::StellarAssetClient::new(&env, &sac.address());
         coin_admin.mint(&user, &1_000_000i128);
 
-        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia"), String::from_str(&env, "0xETHLOCK")));
+        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia")));
         let pool = VeilPoolClient::new(&env, &id);
 
         let amount = 500_000i128;
@@ -1091,7 +1106,7 @@ mod deposit_test {
         let sac = env.register_stellar_asset_contract_v2(issuer);
         token::StellarAssetClient::new(&env, &sac.address())
             .mint(&user, &3_000_000_000_000_000_000i128);
-        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia"), String::from_str(&env, "0xETHLOCK")));
+        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia")));
         let pool = VeilPoolClient::new(&env, &id);
 
         pool.deposit(
@@ -1120,7 +1135,7 @@ mod deposit_test {
         let issuer = Address::generate(&env);
         let user = Address::generate(&env);
         let sac = env.register_stellar_asset_contract_v2(issuer);
-        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia"), String::from_str(&env, "0xETHLOCK")));
+        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia")));
         let pool = VeilPoolClient::new(&env, &id);
         pool.deposit(&user, &0i128, &U256::from_u32(&env, 2), &U256::from_u32(&env, 1));
     }
@@ -1137,7 +1152,7 @@ mod deposit_test {
         let user = Address::generate(&env);
         let sac = env.register_stellar_asset_contract_v2(issuer);
         token::StellarAssetClient::new(&env, &sac.address()).mint(&user, &1_000i128);
-        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia"), String::from_str(&env, "0xETHLOCK")));
+        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia")));
         let pool = VeilPoolClient::new(&env, &id);
 
         let too_big = U256::from_be_bytes(&env, &soroban_sdk::Bytes::from_array(&env, &[0xFFu8; 32]));
@@ -1170,10 +1185,11 @@ mod execute_test {
                 Address::generate(env),
                 gateway,
                 String::from_str(env, SRC_CHAIN),
-                String::from_str(env, SRC_ADDR),
             ),
         );
-        VeilPoolClient::new(env, &id)
+        let pool = VeilPoolClient::new(env, &id);
+        pool.set_eth_lock(&String::from_str(env, SRC_ADDR));
+        pool
     }
 
     /// EVM `abi.encode(uint256 commitment, uint256 amount)` = two 32-byte big-endian words.
@@ -1280,6 +1296,41 @@ mod execute_test {
         env.mock_all_auths();
         let pool = new_pool(&env, true);
         pool.execute(&s(&env, SRC_CHAIN), &s(&env, "m1"), &s(&env, SRC_ADDR), &Bytes::from_array(&env, &[0u8; 32]));
+    }
+
+    #[test]
+    #[should_panic(expected = "not initialized")]
+    fn execute_rejects_before_eth_lock_pinned() {
+        // Fail-closed: a pool whose `set_eth_lock` was never called mints NOTHING, even for an
+        // Axelar-approved message — so there is no window between deploy and pinning the origin.
+        let env = Env::default();
+        env.mock_all_auths();
+        let sac = env.register_stellar_asset_contract_v2(Address::generate(&env));
+        let gateway = env.register(StubGateway, (true,));
+        let id = env.register(
+            VeilPool,
+            (
+                Address::generate(&env),
+                sac.address(),
+                16u32,
+                Address::generate(&env),
+                Address::generate(&env),
+                Address::generate(&env),
+                gateway,
+                String::from_str(&env, SRC_CHAIN),
+            ),
+        );
+        let pool = VeilPoolClient::new(&env, &id);
+        pool.execute(&s(&env, SRC_CHAIN), &s(&env, "m1"), &s(&env, SRC_ADDR), &payload(&env, 1, 1000));
+    }
+
+    #[test]
+    #[should_panic(expected = "eth_lock already set")]
+    fn set_eth_lock_is_one_time() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let pool = new_pool(&env, true); // already pins the origin
+        pool.set_eth_lock(&s(&env, "0xANOTHER"));
     }
 }
 
