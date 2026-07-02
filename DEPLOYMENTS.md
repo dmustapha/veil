@@ -284,3 +284,40 @@ unchanged — ONLY the deposit backing changed from a Stellar token escrow to a 
 
 The ETH never left Ethereum; only `(commitment, amount)` (relayer) + the shielded borrow proof
 (Stellar) crossed over. Every ZK proof was generated client-side and verified on-chain.
+
+## Veil v3 — Phase 7-real (Axelar-attested, REAL WETH) — trust-minimized redo
+Resolves the review of the first Phase 7: **real** wrapped Sepolia ETH (canonical WETH, no mock/mint)
+and the cross-chain attestation is carried by **Axelar GMP** (decentralized validator set, authenticated
+on-chain via the Axelar gateway's `validate_message`) — NO trusted relayer, NO state-root poster, NO
+native MPT verifier. The trusted-relayer `attest_lock` is replaced by an Axelar `execute`. The shielded
+borrow (client-side ZK, verified natively on Soroban) is unchanged.
+
+### Ethereum (Sepolia) — deployer `0xe9179cEf…`
+- **canonical WETH** (Uniswap, real wrapped ETH — `deposit()` wraps real ETH 1:1, no mint):
+  `0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14`
+- **DepositFromEthVerifier**: `0x60876f67843e0A3b9cfd7875999fdb8f86A22c09` (deploy `0xd52bfd1f…`)
+- **VeilEthLock** (real WETH escrow + opening-proof verify + Axelar `callContract`): `0x7d9F4aC835a547cF0AFB3085d7D03e41a88ccD65`
+  (deploy `0x2e5432b2…`; `weth()`=canonical WETH, `gateway()`=Axelar, `destinationContract`=pool below;
+  `setDestination` tx `0x216ccd38…`)
+- Axelar (Sepolia): gateway `0xe432150cce91c13a887f7D836923d5597adD8E31`, gas service
+  `0xbE406F0189A0B4cf3A05C286473D23791Dd44Cc6`, chain name `ethereum-sepolia`
+
+### Soroban (testnet) — admin `veil-spike` `GABHHKTQ…FXIF`
+- **veil-pool** (Axelar `execute` cross-chain deposit; no trusted relayer, deposit()/token escrow
+  compiled OUT — M-02): `CDF7WIYFUHGFGLRQGDXFKFFDHWAGTGWI2LRBMIHTW4KSX2CTGU5RRH7E`
+  - constructor pins Axelar gateway `CCSNWHMQ…DT5I` + source_chain `ethereum-sepolia`; P27 verifiers
+    lock `CD4LXCNP…` / unlock `CDIAVRLO…` / seize `CCS6HBA3…`
+  - `set_vault(veil-vault)` tx `c85857d8…`; `set_eth_lock(<checksummed VeilEthLock>)` = pinned after
+    observing the first delivered message (fail-closed until then)
+- **veil-vault**: `CAZHJR7XHL62LD465FWK6UGKCD5AGYSHGFQJ3EXPXXKFXUPBGERVMK23`
+  - borrow_verifier `CBTSWUY5…DMM2`, veil_pool above, usdc `CBIELTK6…DAMA`, reflector `CCYOZJCO…RN63`
+    Other(ETH), ltv 7000 / liq 8000 / min_threshold 1e11 / term 500000 / rate 500
+  - `lp_deposit` 1.7 USDC (17000000) tx `a9dfc363…` → total_assets 17000000
+- Axelar Stellar gateway: `CCSNWHMQSPTW4PS7L32OIMH7Z6NFNCKYZKNFSWRSYX7MK64KHBDZDT5I`; dest chain
+  `stellar-2025-q1`. Axelar delivers EVM `source_address` in EIP-55 checksummed form.
+
+### Live e2e (in progress — Axelar relaying)
+- **real WETH lock** (0.002 real ETH wrapped → 2e15 WETH escrowed; opening proof verified on-chain;
+  Axelar `ContractCall` + 0.01 ETH gas): tx `0xf68a6171d74996031bb0fd47e7fdefe2634ecce06321c547eba3a384e6f3bf24`
+  (block 11187841), payload `(C_available, 2e15)` → pool. Awaiting Axelar confirm→approve→`execute`
+  (testnet Amplifier confirmation is slow); then `set_eth_lock` + client lock+borrow → REAL USDC.
