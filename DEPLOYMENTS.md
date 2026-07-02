@@ -335,3 +335,20 @@ borrow (client-side ZK, verified natively on Soroban) is unchanged.
   `is_message_approved`). Trust = Axelar validator set (inherent/documented) + single-party ceremony
   (testnet-only). Axelar's legacy JS recovery SDK cannot relay this leg ("cannot find chain
   stellar-2025-q1" — Amplifier route); delivery is by Axelar's own relayers.
+
+### ⚠️ CONFIG CORRECTION — stale Axelar chain name (the above deploy was UNDELIVERABLE)
+Re-checking the stuck message showed `is_invalid_destination_chain: true`: the gmp-example README's
+`stellar-2025-q1` is STALE. The current Stellar testnet Amplifier chain (Axelar `getChains`, 2026-07)
+is **`stellar-2026-q1-2`**, gateway **`CB2JYOOZPHO43R57TC5PXV22QICKIDC5NKRF62BZG2J6JYFUIQPIAYY3`**
+(was `CCSNWHMQ…`). Sepolia source (`ethereum-sepolia`, gateway `0xe432150c…`) was already correct.
+VeilEthLock's destination chain is now SETTABLE (survives quarterly Amplifier rotations). **Corrected
+redeploy (THIS is the live set; the addresses above are superseded):**
+- Sepolia: DepositFromEthVerifier `0xfe346c22f793032a1f5d3ba18d940fe27e9fc19f`, **VeilEthLock
+  `0xE114C79D44Fe888FB2dbF962A29023771Ef3B1D2`** (`setDestination("stellar-2026-q1-2", pool)`)
+- Soroban: **veil-pool `CDIHDUDQIODLZOJAOCZA7DFIHYSX4C37N42RRFWQRC6NN6P7V6263WTB`** (Axelar gateway
+  `CB2JYOOZ…` + `ethereum-sepolia` pinned), **veil-vault
+  `CCXGKWB5BQFPIJFARYYIB4FBQPLHGFBVANWHFODMQDRHPF2E3K6DCNKF`** (LP 1.7 USDC), `set_vault` tx `467d73dc…`
+- **re-lock**: 0.002 REAL WETH escrowed on the new VeilEthLock (tx
+  `0x6903206311608c7d73396c533bab95da1a35f8692f140db9f1105d562d84d7f9`, isLocked=true) → Axelar message
+  to `stellar-2026-q1-2` + pool, **`is_invalid_destination_chain: false`, gas_paid: true** (now VALID +
+  routing). Superseded (stale-chain) set: pool `CDF7WIYF…`, vault `CAZHJR7X…`, VeilEthLock `0x7d9F4a…`.
