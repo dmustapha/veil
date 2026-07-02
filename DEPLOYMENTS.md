@@ -204,3 +204,40 @@ The full lifecycle, every proof generated client-side by the browser prover (`we
   (1e15+1, an unproven floor) → the vault's borrow-verifier call returns `Error(Contract, #0)` =
   InvalidProof, escalated to a VM trap → the borrow reverts, **0 USDC moved** (balance unchanged). The
   proof binds the exact floor; you cannot claim one you did not prove.
+
+## Veil v3 — Phase 7f cross-chain deploy (2026-07-02)
+Real-ETH collateral leg. A borrower locks WETH on Sepolia (`VeilEthLock`, opening proof verified
+on-chain by `DepositFromEthVerifier`); the eth-lock relayer mirrors each `Locked(C, amount, owner)`
+into the Soroban `veil-pool.attest_lock`; the existing shielded lock→borrow then disburses REAL USDC.
+The ETH never leaves Ethereum — only `(commitment, amount)` (via relayer) + the shielded borrow proof
+(on Stellar) cross over. Reuses the P27 verifiers + USDC_SAC.
+
+### Sepolia (chainId 11155111) — deployer `0xe9179cEf73A5Bf26928bC50013A88cdB618b0Caf`
+- **DepositFromEthVerifier** (snarkjs Groth16, public `[amount, C]`): `0x69879b1E9841bb36bbccFc62eE67657DEe7E4bAe`
+  - deploy tx `0x1c02b78d763b7ca41d7351815e6da44e109bc19efbdcb9f90e126b66f6773d4d`
+- **MockWstETH** (WETH stand-in the borrower locks; freely mintable): `0x61d11466DB766932aea0B4E224fA9C91ecD0426A`
+  - deploy tx `0x6b90570de1c5c4ca6c96c5c76e48d203fd1cd8722c14c88e3a666ae6000b0cb6`
+- **VeilEthLock** (lock WETH + verify opening proof + emit `Locked`): `0x9Ea8A7a45C68b5c892D981E8375d15E8B8E9dd4D`
+  - deploy tx `0x021b5aa88b245cfa2c2783e1995002007db2729d6bea069228db031215a315c6`
+  - on-chain wiring confirmed: `weth()` = MockWstETH, `verifier()` = DepositFromEthVerifier, `totalLocked()` = 0
+  - deployed via `forge script script/DeployEthLock.s.sol:DeployEthLock --broadcast`
+
+### Soroban (testnet, sdk 27.0.0-rc.1 / protocol 27) — admin `veil-spike` `GABHHKTQ…FXIF`
+- **veil-pool** (shielded note pool + `attest_lock`): `CCEGNNAATXEKCUWVDUHWE6LQSIOEYGGB5GXFCAG6L3KO33YZ4WCIGSLM`
+  - deploy tx `773fa4980867bceaf318667fad8e0dfb777b031cc73d63ea3d7575b247820c8a`
+  - constructor: admin `veil-spike`, token USDC_SAC `CBIELTK6…DAMA` (inert — the cross-chain path
+    escrows nothing; `attest_lock` records `total_backed` instead), levels 16, verifiers (P27)
+    lock `CD4LXCNP…SH6B` / unlock `CDIAVRLO…JSVQ` / seize `CCS6HBA3…FGHU`
+  - `set_relayer(veil-spike)` (disclosed-trust cross-chain relayer, one-time) tx `fa41dcaa6050ec0e4e569137a5bae5e11a7818f9da5324b2b3da6159764f2a49`
+  - `set_vault(veil-vault below)` tx `24d7014a65bbd1f351fdd699651871519a78942cddb411af523031408f5f8379`
+  - fresh: `total_deposited` = 0; a second `set_relayer` traps (binding locked)
+- **veil-vault** (ERC-4626 LP + borrow/margin/repay/liquidate): `CBOQBRWOFE6KOKHKEVRQU3753FXOT4VM2ND6FEOAVABBDOWUQLXVSFQ2`
+  - deploy tx `d07208499bfa023b9d76ab21dc77f91b98abd6fc9e628fcc86c4382643a5c72c`
+  - constructor: admin `veil-spike`, borrow_verifier `CBTSWUY5…DMM2` (P27), veil_pool `CCEGNNAA…GSLM`,
+    usdc `CBIELTK6…DAMA`, reflector `CCYOZJCO…RN63` Other(ETH), ltv 7000 / liq 8000 / min_threshold 1e11 /
+    term 500000 / rate 500
+  - `lp_deposit` 2 USDC (20000000) tx `7f76869045c30b6e7600bbb4e3d9c1649e3396758c6798925d34934a11dbffbd` → `total_assets` 20000000
+  - LP sized to 2 USDC (veil-spike's remaining balance; the 6d vault holds the earlier 9 USDC) — covers
+    one ~1.13 USDC demo loan at the 6d threshold scale.
+- Relayer wiring: `relayer/config.mjs` fallbacks + `contracts/escrow/.env` set `ethLock` /
+  `poolV3` / `VEIL_VAULT_V3`. Run `cd relayer && node eth-lock-relayer.mjs` (one-shot) or `--watch`.
