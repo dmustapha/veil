@@ -38,17 +38,19 @@ export const cfg = {
   vault: "CDPYUWKD5OTYVWK6C3FQC2OEB3XK4DRAI7WJ5C3XQW6TY3UV2JQWFX2D",
   // v2 lending vault (Relayer A target); set at deploy time. Empty until VeilVault v2 ships.
   vaultV2: process.env.VAULT_V2_ID || escrowEnv.VAULT_V2_ID || "",
-  // --- v3 cross-chain collateral (eth-lock relayer) ---
-  // Sepolia VeilEthLock (emits Locked(commitment, amount, owner)); deployed 7f.
-  ethLock:
-    process.env.VEIL_ETH_LOCK || escrowEnv.VEIL_ETH_LOCK ||
-    "0x9Ea8A7a45C68b5c892D981E8375d15E8B8E9dd4D",
-  // v3 Soroban veil-pool (attest_lock target); deployed 7f.
-  poolV3:
-    process.env.VEIL_POOL_V3 || escrowEnv.VEIL_POOL_V3 ||
-    "CCEGNNAATXEKCUWVDUHWE6LQSIOEYGGB5GXFCAG6L3KO33YZ4WCIGSLM",
-  // The Stellar identity bound via veil-pool.set_relayer (defaults to the admin for the demo).
-  relayerSource: process.env.RELAYER_SOURCE || "veil-spike",
+  // --- v3 cross-chain collateral (Axelar GMP — NO trusted relayer) ---
+  // The Sepolia VeilEthLock's Locked → Soroban veil-pool.execute hop is carried by Axelar's
+  // decentralized network; there is no eth-lock relayer script to run (deleted). These addresses are
+  // for the e2e (triggering lock + polling Axelarscan). Set at redeploy (Stage D).
+  ethLock: process.env.VEIL_ETH_LOCK || escrowEnv.VEIL_ETH_LOCK || "",
+  poolV3: process.env.VEIL_POOL_V3 || escrowEnv.VEIL_POOL_V3 || "",
+  // Axelar testnet contracts.
+  axelarGatewaySepolia: "0xe432150cce91c13a887f7D836923d5597adD8E31",
+  axelarGasServiceSepolia: "0xbE406F0189A0B4cf3A05C286473D23791Dd44Cc6",
+  axelarGatewayStellar: "CCSNWHMQSPTW4PS7L32OIMH7Z6NFNCKYZKNFSWRSYX7MK64KHBDZDT5I",
+  sourceChainName: "ethereum-sepolia",
+  destChainName: "stellar-2025-q1",
+  axelarscan: "https://testnet.axelarscan.io/gmp/",
 };
 
 export function cast(args) {
