@@ -15,12 +15,17 @@ mod ttl;
 #[cfg(feature = "contract")]
 use soroban_sdk::{
     contract, contractclient, contractevent, contractimpl, contracttype, crypto::bn254::Bn254Fr,
-    token, Address, Bytes, BytesN, Env, Vec, U256,
+    Address, Bytes, BytesN, Env, String, Vec, U256,
 };
+// `deposit` (Stellar-token escrow) is compiled ONLY for tests / the opt-in `stellar_deposit` feature —
+// the deployed cross-chain pool has no token-deposit path (M-02: else USDC sent via deposit() is
+// trapped, there being no withdraw). Attestation flows exclusively through Axelar `execute`.
+#[cfg(all(feature = "contract", any(test, feature = "stellar_deposit")))]
+use soroban_sdk::token;
 
 #[cfg(feature = "contract")]
 use merkle_with_history::MerkleTreeWithHistory;
-#[cfg(feature = "contract")]
+#[cfg(all(feature = "contract", any(test, feature = "stellar_deposit")))]
 use notes::{note_commitment, DS_NOTE_AVAILABLE};
 #[cfg(feature = "contract")]
 use nullifiers::NullifierSet;
@@ -28,7 +33,7 @@ use nullifiers::NullifierSet;
 use veil_verifier::{Groth16Error, Groth16Proof};
 
 /// Emitted on every deposit (deposits are public): the leaf index (topic) and its commitment.
-#[cfg(feature = "contract")]
+#[cfg(all(feature = "contract", any(test, feature = "stellar_deposit")))]
 #[contractevent]
 #[derive(Clone)]
 pub struct Deposit {
@@ -79,8 +84,16 @@ enum ConfigKey {
     SeizeVerifier,
     /// The veil-vault, source of the repaid/liquidated gating roots that unlock/seize prove against.
     Vault,
-    /// The cross-chain relayer allowed to call `attest_lock` (mirrors real Ethereum WETH locks).
-    Relayer,
+    /// Axelar GMP gateway. `execute` authenticates every cross-chain message via its `validate_message`
+    /// (which also flips approved→executed = built-in replay protection).
+    AxelarGateway,
+    /// Axelar chain name of the trusted source (Ethereum Sepolia). Only messages from this chain +
+    /// `EthLockAddr` may mint notes.
+    SourceChain,
+    /// The Sepolia VeilEthLock address string Axelar delivers as `source_address` — the ONLY origin
+    /// allowed to attest a cross-chain lock. Pinned at construction (safety-critical): a message from
+    /// any other source is rejected, so no third party can inject a note.
+    EthLockAddr,
 }
 
 /// Persistent guard against double-attesting the same Ethereum-backed commitment. Presence means the
@@ -115,6 +128,25 @@ pub trait VaultIface {
     fn liquidated_root(env: Env) -> U256;
 }
 
+/// The deployed Axelar GMP gateway (messaging interface). `validate_message` returns true iff the
+/// gateway holds an APPROVED message for this `(caller, source_chain, message_id, source_address,
+/// payload_hash)` and atomically marks it EXECUTED — so replaying the same message fails. Hand-written
+/// ABI-level client (no axelar-crate dependency, which would collide with our sdk version): the args
+/// are protocol-level ScVal types, so it interoperates with the deployed gateway regardless of the sdk
+/// it was compiled against.
+#[cfg(feature = "contract")]
+#[contractclient(name = "AxelarGatewayClient")]
+pub trait AxelarGatewayIface {
+    fn validate_message(
+        env: Env,
+        caller: Address,
+        source_chain: String,
+        message_id: String,
+        source_address: String,
+        payload_hash: BytesN<32>,
+    ) -> bool;
+}
+
 /// Shielded note pool. Holds the Poseidon2 Merkle tree of note commitments; `deposit` escrows
 /// collateral and inserts a leaf, joinsplits (lock/unlock/seize) spend + mint against it. (Nullifier
 /// set + joinsplit verification wiring land in the following Phase-1/Phase-4 steps.)
@@ -133,7 +165,7 @@ const BN254_R: [u8; 32] = [
 ];
 
 /// Widen a positive `i128` amount to a BN254 field element (16-byte BE at the low word).
-#[cfg(feature = "contract")]
+#[cfg(all(feature = "contract", any(test, feature = "stellar_deposit")))]
 fn amount_to_field(env: &Env, amount: i128) -> U256 {
     let mut b = [0u8; 32];
     b[16..].copy_from_slice(&amount.to_be_bytes());
@@ -155,6 +187,9 @@ impl VeilPool {
         lock_verifier: Address,
         unlock_verifier: Address,
         seize_verifier: Address,
+        axelar_gateway: Address,
+        source_chain: String,
+        eth_lock_addr: String,
     ) {
         let s = env.storage().instance();
         s.set(&ConfigKey::Admin, &admin);
@@ -163,6 +198,13 @@ impl VeilPool {
         s.set(&ConfigKey::LockVerifier, &lock_verifier);
         s.set(&ConfigKey::UnlockVerifier, &unlock_verifier);
         s.set(&ConfigKey::SeizeVerifier, &seize_verifier);
+        // Cross-chain attestation config, pinned atomically at deploy (no post-deploy swap window):
+        // `execute` only mints a note for an Axelar-authenticated message from this exact
+        // (source_chain, eth_lock_addr). Safety-critical — a mutable origin would let a wrong source
+        // forge notes.
+        s.set(&ConfigKey::AxelarGateway, &axelar_gateway);
+        s.set(&ConfigKey::SourceChain, &source_chain);
+        s.set(&ConfigKey::EthLockAddr, &eth_lock_addr);
         s.extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
         MerkleTreeWithHistory::init(&env, levels).expect("init");
     }
@@ -182,51 +224,81 @@ impl VeilPool {
         env.storage().instance().extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
     }
 
-    /// Bind the cross-chain relayer allowed to call `attest_lock`. Admin-gated and ONE-TIME (mirrors
-    /// `set_vault`): the relayer mirrors real Ethereum WETH locks into this pool, so the binding must
-    /// not be swappable after deploy.
-    pub fn set_relayer(env: Env, relayer: Address) {
-        let admin: Address =
-            env.storage().instance().get(&ConfigKey::Admin).expect("not initialized");
-        admin.require_auth();
-        assert!(
-            !env.storage().instance().has(&ConfigKey::Relayer),
-            "relayer already set"
-        );
-        env.storage().instance().set(&ConfigKey::Relayer, &relayer);
-        env.storage().instance().extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
-    }
+    /// Cross-chain deposit via Axelar GMP — the trust-minimized replacement for a trusted relayer.
+    ///
+    /// The Axelar relayer calls this after the Sepolia `VeilEthLock.lock` (where an on-chain Groth16
+    /// opening proof already bound `commitment` to exactly `amount`, and REAL WETH was escrowed) emitted
+    /// the message. We authenticate it against the Axelar gateway's `validate_message`, which proves the
+    /// message was approved by Axelar's decentralized validator set for our pinned VeilEthLock on
+    /// Sepolia — so NO single relayer or state-root poster is trusted. We then insert the AVAILABLE note
+    /// `commitment` into the tree and record `amount` as backing. NO Stellar token is escrowed; the
+    /// collateral is the Ethereum lock.
+    ///
+    /// `payload` is the EVM `abi.encode(uint256 commitment, uint256 amount)` (two 32-byte big-endian
+    /// words). `validate_message` marks the message EXECUTED (Axelar-level replay guard); `AttestKey` is
+    /// a second, pool-level guard so one Ethereum lock mints exactly one borrowable note.
+    pub fn execute(
+        env: Env,
+        source_chain: String,
+        message_id: String,
+        source_address: String,
+        payload: Bytes,
+    ) {
+        let s = env.storage().instance();
 
-    /// Cross-chain deposit: mirror a real Ethereum WETH lock into the pool. The relayer (having
-    /// observed a `VeilEthLock.Locked(commitment, amount, …)` event on Sepolia — where an on-chain
-    /// Groth16 opening proof already bound `commitment` to exactly `amount`) inserts the AVAILABLE
-    /// note `commitment` into the tree and records `amount` as backing (the pool's solvency floor).
-    /// NO Stellar token is escrowed — the collateral is the Ethereum lock. Relayer-gated and
-    /// idempotent per commitment (a re-attest of the same lock is rejected, else one Ethereum lock
-    /// would mint two borrowable notes). Returns the leaf index.
-    pub fn attest_lock(env: Env, commitment: U256, amount: i128) -> u32 {
-        let relayer: Address =
-            env.storage().instance().get(&ConfigKey::Relayer).expect("relayer not set");
-        relayer.require_auth();
+        // 1. Authenticate + consume via the Axelar gateway (idempotent: replay → not approved).
+        let gateway: Address = s.get(&ConfigKey::AxelarGateway).expect("not initialized");
+        let approved = AxelarGatewayClient::new(&env, &gateway).validate_message(
+            &env.current_contract_address(),
+            &source_chain,
+            &message_id,
+            &source_address,
+            &env.crypto().keccak256(&payload).into(),
+        );
+        assert!(approved, "axelar: message not approved");
+
+        // 2. Pin the origin: only our VeilEthLock on Sepolia may mint notes.
+        let exp_chain: String = s.get(&ConfigKey::SourceChain).expect("not initialized");
+        let exp_src: String = s.get(&ConfigKey::EthLockAddr).expect("not initialized");
+        assert!(source_chain == exp_chain, "unexpected source chain");
+        assert!(source_address == exp_src, "unexpected source address");
+
+        // 3. Decode payload = abi.encode(commitment, amount).
+        assert!(payload.len() == 64, "bad payload length");
+        let commitment = U256::from_be_bytes(&env, &payload.slice(0..32));
+        let amount = Self::payload_word_to_i128(&payload.slice(32..64));
+
+        // 4. Effects (canonical field element, one-attest-per-commitment, insert + back).
         assert!(amount > 0, "amount must be positive");
         Self::require_canonical(&env, &commitment);
-
-        // One attestation per commitment (matches VeilEthLock's one-lock-per-commitment).
         let ak = AttestKey::Attested(commitment.clone());
         assert!(!env.storage().persistent().has(&ak), "commitment already attested");
 
         let index = MerkleTreeWithHistory::insert_leaf(&env, commitment.clone()).expect("insert");
-
-        let total: i128 = env.storage().instance().get(&ConfigKey::TotalDeposited).unwrap_or(0);
-        env.storage()
-            .instance()
-            .set(&ConfigKey::TotalDeposited, &total.checked_add(amount).expect("overflow"));
+        let total: i128 = s.get(&ConfigKey::TotalDeposited).unwrap_or(0);
+        s.set(&ConfigKey::TotalDeposited, &total.checked_add(amount).expect("overflow"));
         env.storage().persistent().set(&ak, &true);
+        // Bump to the tree/instance 30-day horizon. Audit M-01 residual: Soroban entries are not
+        // immortal, so a long-idle pool needs an operational keep-alive re-bump of the attest guards.
         ttl::bump(&env, &ak);
-        env.storage().instance().extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
+        s.extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
 
         AttestLock { index, commitment, amount }.publish(&env);
-        index
+    }
+
+    /// Decode a 32-byte big-endian EVM word into a positive `i128`, rejecting anything that would not
+    /// fit (high 16 bytes must be zero and the value < 2^127) so a lock larger than `i128::MAX` cannot
+    /// silently wrap into a negative/aliased amount.
+    fn payload_word_to_i128(word: &Bytes) -> i128 {
+        let mut b = [0u8; 32];
+        word.copy_into_slice(&mut b);
+        for &hi in b.iter().take(16) {
+            assert!(hi == 0, "amount exceeds i128::MAX");
+        }
+        assert!(b[16] < 0x80, "amount exceeds i128::MAX");
+        let mut lo = [0u8; 16];
+        lo.copy_from_slice(&b[16..32]);
+        i128::from_be_bytes(lo)
     }
 
     /// Escrow `amount` of collateral and insert its AVAILABLE note commitment.
@@ -235,6 +307,11 @@ impl VeilPool {
     /// collateral is provably bound to the leaf — the pool holds exactly the sum of live note
     /// amounts. Deposits are public (collateral in the clear); privacy comes from the anonymity set
     /// and the later shielded joinsplits. Returns the leaf index.
+    ///
+    /// M-02: compiled ONLY for tests / the `stellar_deposit` feature. The deployed cross-chain pool
+    /// omits this entrypoint entirely — collateral enters solely via Axelar `execute` — so no USDC can
+    /// be escrowed here with no withdraw path (which would trap it).
+    #[cfg(any(test, feature = "stellar_deposit"))]
     pub fn deposit(env: Env, from: Address, amount: i128, spend_pk: U256, blinding: U256) -> u32 {
         from.require_auth();
         assert!(amount > 0, "amount must be positive");
@@ -472,12 +549,35 @@ impl StubVault {
     }
 }
 
+/// Stub Axelar gateway for `execute` tests: `validate_message` returns a constructor-set flag, so a
+/// test can simulate an approved message (`true`) or an unapproved/forged one (`false`).
+#[cfg(test)]
+#[contract]
+pub struct StubGateway;
+#[cfg(test)]
+#[contractimpl]
+impl StubGateway {
+    pub fn __constructor(env: Env, approve: bool) {
+        env.storage().instance().set(&soroban_sdk::symbol_short!("OK"), &approve);
+    }
+    pub fn validate_message(
+        env: Env,
+        _caller: Address,
+        _source_chain: String,
+        _message_id: String,
+        _source_address: String,
+        _payload_hash: BytesN<32>,
+    ) -> bool {
+        env.storage().instance().get(&soroban_sdk::symbol_short!("OK")).unwrap_or(true)
+    }
+}
+
 #[cfg(test)]
 mod spend_test {
     use crate::{StubVault, StubVerifier, VeilPool, VeilPoolClient};
     use soroban_sdk::crypto::bn254::{Bn254G1Affine, Bn254G2Affine};
     use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::{token, Address, Bytes, BytesN, Env, U256};
+    use soroban_sdk::{token, Address, Bytes, BytesN, Env, String, U256};
     use veil_verifier::Groth16Proof;
 
     struct Fx<'a> {
@@ -505,7 +605,17 @@ mod spend_test {
         let vault = env.register(StubVault, ());
         let id = env.register(
             VeilPool,
-            (admin, sac.address(), 16u32, verifier.clone(), verifier.clone(), verifier.clone()),
+            (
+                admin,
+                sac.address(),
+                16u32,
+                verifier.clone(),
+                verifier.clone(),
+                verifier.clone(),
+                Address::generate(&env),
+                String::from_str(&env, "ethereum-sepolia"),
+                String::from_str(&env, "0xETHLOCK"),
+            ),
         );
         let pool = VeilPoolClient::new(&env, &id);
         pool.set_vault(&vault);
@@ -915,7 +1025,7 @@ mod deposit_test {
     use crate::notes::{note_commitment, DS_NOTE_AVAILABLE};
     use crate::{amount_to_field, TestHost, VeilPool, VeilPoolClient};
     use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::{token, Address, Env, U256};
+    use soroban_sdk::{token, Address, Env, String, U256};
 
     #[test]
     fn deposit_escrows_collateral_and_inserts_available_commitment() {
@@ -930,7 +1040,7 @@ mod deposit_test {
         let coin_admin = token::StellarAssetClient::new(&env, &sac.address());
         coin_admin.mint(&user, &1_000_000i128);
 
-        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env)));
+        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia"), String::from_str(&env, "0xETHLOCK")));
         let pool = VeilPoolClient::new(&env, &id);
 
         let amount = 500_000i128;
@@ -981,7 +1091,7 @@ mod deposit_test {
         let sac = env.register_stellar_asset_contract_v2(issuer);
         token::StellarAssetClient::new(&env, &sac.address())
             .mint(&user, &3_000_000_000_000_000_000i128);
-        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env)));
+        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia"), String::from_str(&env, "0xETHLOCK")));
         let pool = VeilPoolClient::new(&env, &id);
 
         pool.deposit(
@@ -1010,7 +1120,7 @@ mod deposit_test {
         let issuer = Address::generate(&env);
         let user = Address::generate(&env);
         let sac = env.register_stellar_asset_contract_v2(issuer);
-        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env)));
+        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia"), String::from_str(&env, "0xETHLOCK")));
         let pool = VeilPoolClient::new(&env, &id);
         pool.deposit(&user, &0i128, &U256::from_u32(&env, 2), &U256::from_u32(&env, 1));
     }
@@ -1027,7 +1137,7 @@ mod deposit_test {
         let user = Address::generate(&env);
         let sac = env.register_stellar_asset_contract_v2(issuer);
         token::StellarAssetClient::new(&env, &sac.address()).mint(&user, &1_000i128);
-        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env)));
+        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia"), String::from_str(&env, "0xETHLOCK")));
         let pool = VeilPoolClient::new(&env, &id);
 
         let too_big = U256::from_be_bytes(&env, &soroban_sdk::Bytes::from_array(&env, &[0xFFu8; 32]));
@@ -1036,14 +1146,19 @@ mod deposit_test {
 }
 
 #[cfg(test)]
-mod attest_test {
+mod execute_test {
     use crate::merkle_with_history::MerkleTreeWithHistory as T;
-    use crate::{TestHost, VeilPool, VeilPoolClient};
+    use crate::{StubGateway, TestHost, VeilPool, VeilPoolClient};
     use soroban_sdk::testutils::Address as _;
-    use soroban_sdk::{Address, Env, U256};
+    use soroban_sdk::{Address, Bytes, Env, String, U256};
 
-    fn new_pool(env: &Env) -> VeilPoolClient<'static> {
+    const SRC_CHAIN: &str = "ethereum-sepolia";
+    const SRC_ADDR: &str = "0xVeilEthLockAddr";
+
+    /// A pool wired to a StubGateway. `approve` = what the gateway's `validate_message` returns.
+    fn new_pool(env: &Env, approve: bool) -> VeilPoolClient<'static> {
         let sac = env.register_stellar_asset_contract_v2(Address::generate(env));
+        let gateway = env.register(StubGateway, (approve,));
         let id = env.register(
             VeilPool,
             (
@@ -1053,27 +1168,40 @@ mod attest_test {
                 Address::generate(env),
                 Address::generate(env),
                 Address::generate(env),
+                gateway,
+                String::from_str(env, SRC_CHAIN),
+                String::from_str(env, SRC_ADDR),
             ),
         );
         VeilPoolClient::new(env, &id)
     }
 
+    /// EVM `abi.encode(uint256 commitment, uint256 amount)` = two 32-byte big-endian words.
+    fn payload(env: &Env, commitment: u32, amount: u128) -> Bytes {
+        let mut b = [0u8; 64];
+        b[28..32].copy_from_slice(&commitment.to_be_bytes()); // C in word 0
+        b[48..64].copy_from_slice(&amount.to_be_bytes()); // amount in word 1
+        Bytes::from_array(env, &b)
+    }
+
+    fn s(env: &Env, v: &str) -> String {
+        String::from_str(env, v)
+    }
+
     #[test]
-    fn attest_lock_inserts_backs_and_is_provable() {
+    fn execute_authenticates_inserts_and_backs() {
         let env = Env::default();
         env.mock_all_auths();
-        let pool = new_pool(&env);
-        pool.set_relayer(&Address::generate(&env));
+        let pool = new_pool(&env, true);
+        let amount: u128 = 2_000_000_000_000_000;
+        let c_u32 = 12345u32;
+        pool.execute(&s(&env, SRC_CHAIN), &s(&env, "m1"), &s(&env, SRC_ADDR), &payload(&env, c_u32, amount));
 
-        let c = U256::from_u32(&env, 12345);
-        let amount = 2_000_000_000_000_000i128;
-        let idx = pool.attest_lock(&c, &amount);
-
-        assert_eq!(idx, 0, "first attested leaf at index 0");
-        assert_eq!(pool.total_deposited(), amount, "amount recorded as backing");
+        assert_eq!(pool.total_deposited(), amount as i128, "amount recorded as backing");
 
         // The attested commitment IS the leaf: a fresh tree with just `c` reaches the same root, so
         // the existing lock/borrow membership circuits can prove it (no Stellar escrow required).
+        let c = U256::from_u32(&env, c_u32);
         let root = pool.root();
         assert!(pool.is_known_root(&root));
         let id2 = env.register(TestHost, ());
@@ -1084,46 +1212,74 @@ mod attest_test {
     }
 
     #[test]
+    #[should_panic(expected = "message not approved")]
+    fn execute_rejects_unapproved_message() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let pool = new_pool(&env, false); // gateway rejects → forged/unauthenticated message
+        pool.execute(&s(&env, SRC_CHAIN), &s(&env, "m1"), &s(&env, SRC_ADDR), &payload(&env, 1, 1000));
+    }
+
+    #[test]
+    #[should_panic(expected = "unexpected source chain")]
+    fn execute_rejects_wrong_source_chain() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let pool = new_pool(&env, true);
+        pool.execute(&s(&env, "avalanche"), &s(&env, "m1"), &s(&env, SRC_ADDR), &payload(&env, 1, 1000));
+    }
+
+    #[test]
+    #[should_panic(expected = "unexpected source address")]
+    fn execute_rejects_wrong_source_address() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let pool = new_pool(&env, true);
+        pool.execute(&s(&env, SRC_CHAIN), &s(&env, "m1"), &s(&env, "0xEVIL"), &payload(&env, 1, 1000));
+    }
+
+    #[test]
     #[should_panic(expected = "commitment already attested")]
-    fn attest_lock_rejects_double_attest() {
-        // One Ethereum lock → one note. Re-attesting the same commitment would mint a second
-        // borrowable note (distinct nullifier per leaf index) backed by one lock → double-borrow.
+    fn execute_rejects_double_attest() {
+        // One Ethereum lock → one note. A second message for the same C (distinct nullifier per leaf
+        // index) would mint a second borrowable note backed by one lock → double-borrow.
         let env = Env::default();
         env.mock_all_auths();
-        let pool = new_pool(&env);
-        pool.set_relayer(&Address::generate(&env));
-        let c = U256::from_u32(&env, 12345);
-        pool.attest_lock(&c, &1_000i128);
-        pool.attest_lock(&c, &1_000i128);
-    }
-
-    #[test]
-    #[should_panic(expected = "relayer not set")]
-    fn attest_lock_requires_relayer_configured() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let pool = new_pool(&env);
-        pool.attest_lock(&U256::from_u32(&env, 1), &1_000i128);
-    }
-
-    #[test]
-    #[should_panic(expected = "relayer already set")]
-    fn set_relayer_is_one_time() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let pool = new_pool(&env);
-        pool.set_relayer(&Address::generate(&env));
-        pool.set_relayer(&Address::generate(&env));
+        let pool = new_pool(&env, true);
+        let p = payload(&env, 12345, 1000);
+        pool.execute(&s(&env, SRC_CHAIN), &s(&env, "m1"), &s(&env, SRC_ADDR), &p);
+        pool.execute(&s(&env, SRC_CHAIN), &s(&env, "m2"), &s(&env, SRC_ADDR), &p);
     }
 
     #[test]
     #[should_panic(expected = "amount must be positive")]
-    fn attest_lock_rejects_nonpositive_amount() {
+    fn execute_rejects_zero_amount() {
         let env = Env::default();
         env.mock_all_auths();
-        let pool = new_pool(&env);
-        pool.set_relayer(&Address::generate(&env));
-        pool.attest_lock(&U256::from_u32(&env, 1), &0i128);
+        let pool = new_pool(&env, true);
+        pool.execute(&s(&env, SRC_CHAIN), &s(&env, "m1"), &s(&env, SRC_ADDR), &payload(&env, 1, 0));
+    }
+
+    #[test]
+    #[should_panic(expected = "amount exceeds i128::MAX")]
+    fn execute_rejects_amount_over_i128() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let pool = new_pool(&env, true);
+        // High byte of the amount word set → value ≥ 2^248, cannot fit a positive i128.
+        let mut b = [0u8; 64];
+        b[31] = 1; // C = 1
+        b[32] = 0x01; // amount word byte 0 nonzero
+        pool.execute(&s(&env, SRC_CHAIN), &s(&env, "m1"), &s(&env, SRC_ADDR), &Bytes::from_array(&env, &b));
+    }
+
+    #[test]
+    #[should_panic(expected = "bad payload length")]
+    fn execute_rejects_bad_payload_length() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let pool = new_pool(&env, true);
+        pool.execute(&s(&env, SRC_CHAIN), &s(&env, "m1"), &s(&env, SRC_ADDR), &Bytes::from_array(&env, &[0u8; 32]));
     }
 }
 

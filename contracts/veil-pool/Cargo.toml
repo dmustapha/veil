@@ -18,6 +18,10 @@ doctest = false
 [features]
 default = ["contract"]
 contract = ["dep:veil-verifier"]
+# Opt-in: compile the Stellar-token `deposit` path. OFF in the deployed cross-chain pool (M-02: no
+# token escrow with no withdraw = trapped funds); ON automatically for tests via cfg(test). Collateral
+# otherwise enters solely via Axelar `execute`.
+stellar_deposit = []
 
 [dependencies]
 soroban-sdk = { version = "=27.0.0-rc.1", features = ["hazmat"] }
