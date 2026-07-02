@@ -16,6 +16,10 @@ import { cfg, cast, sleep } from "./config.mjs";
 
 const POLL_MS = 15_000;
 export const LOCKED_SIG = "Locked(uint256,uint256,address)";
+// Soroban `attest_lock` takes an i128 amount; the opening circuit range-binds amount to u128, so a
+// Locked event could (astronomically) carry amount ∈ [2^127, 2^128). Reject those at decode time —
+// their exact decimal string would overflow the CLI's i128 parse anyway (audit L-01, defense-in-depth).
+export const I128_MAX = (1n << 127n) - 1n;
 
 // ---- pure helpers (unit-tested; no network, no secrets) ----
 
@@ -27,6 +31,7 @@ export function decodeLockedLog(log) {
   const owner = "0x" + topics[2].slice(-40); // indexed address (right-aligned in the 32-byte topic)
   const amount = BigInt(log.data); // sole non-indexed uint256 in data
   if (amount <= 0n) throw new Error("Locked amount must be positive");
+  if (amount > I128_MAX) throw new Error(`Locked amount exceeds i128::MAX (${amount})`);
   return { commitment, amount, owner };
 }
 

@@ -1,7 +1,7 @@
 // Unit tests for the eth-lock relayer's pure decoders (no network, no secrets).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decodeLockedLog, decodeLockedLogs } from "./eth-lock-relayer.mjs";
+import { decodeLockedLog, decodeLockedLogs, I128_MAX } from "./eth-lock-relayer.mjs";
 
 // Real fixture values: C = the AVAILABLE note commitment, amount = 2e18 (0x1bc16d674ec80000).
 const C = 0x01c209ef09acd7a181e181b9f7e89cb7d50f20aed95345d061c9929a8398e10dn;
@@ -35,6 +35,18 @@ test("decodeLockedLog rejects a non-positive amount", () => {
   const bad = lockedLog();
   bad.data = "0x" + "0".repeat(64);
   assert.throws(() => decodeLockedLog(bad), /must be positive/);
+});
+
+test("decodeLockedLog rejects an amount above i128::MAX (audit L-01)", () => {
+  const bad = lockedLog();
+  bad.data = "0x" + ((1n << 127n)).toString(16).padStart(64, "0"); // 2^127 = i128::MAX + 1
+  assert.throws(() => decodeLockedLog(bad), /exceeds i128::MAX/);
+});
+
+test("decodeLockedLog accepts amount == i128::MAX (boundary)", () => {
+  const ok = lockedLog();
+  ok.data = "0x" + I128_MAX.toString(16).padStart(64, "0");
+  assert.equal(decodeLockedLog(ok).amount, I128_MAX);
 });
 
 test("decodeLockedLogs parses a cast --json array (tolerating leading noise)", () => {
