@@ -7,7 +7,7 @@ import { WalletBar } from "./WalletBar";
 import { OpenPosition } from "./OpenPosition";
 import { NoteCard } from "./NoteCard";
 import { Notice } from "./ui";
-import { isVaultUnlocked, loadNotes, unlockVault, type VeilNote } from "@/lib/app/notes";
+import { hasStoredNotes, isVaultUnlocked, loadNotes, unlockVault, type VeilNote } from "@/lib/app/notes";
 
 /**
  * Gate the workspace behind the note vault's passphrase. Notes are AES-GCM encrypted on this device
@@ -16,11 +16,15 @@ import { isVaultUnlocked, loadNotes, unlockVault, type VeilNote } from "@/lib/ap
  */
 function VaultGate({ children }: { children: React.ReactNode }) {
   const [unlocked, setUnlocked] = useState(false);
+  const [returning, setReturning] = useState(false);
   const [passphrase, setPassphrase] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => setUnlocked(isVaultUnlocked()), []);
+  useEffect(() => {
+    setUnlocked(isVaultUnlocked());
+    setReturning(hasStoredNotes());
+  }, []);
 
   const submit = async () => {
     setError("");
@@ -44,13 +48,23 @@ function VaultGate({ children }: { children: React.ReactNode }) {
       <div className="card-pad">
         <div className="card-head">
           <div>
-            <div className="card-title">Unlock your notes</div>
-            <div className="card-sub">Encrypted on this device — the passphrase never leaves your browser</div>
+            <div className="card-title">{returning ? "Unlock your positions" : "Set up your vault"}</div>
+            <div className="card-sub">
+              {returning
+                ? "You have positions saved and encrypted on this device — enter your passphrase to unlock them."
+                : "Encrypted on this device — the passphrase never leaves your browser"}
+            </div>
           </div>
           <span className="chain-tag">
             <Lock aria-hidden="true" /> Local
           </span>
         </div>
+        {returning && (
+          <Notice tone="info">
+            Your positions aren’t lost — they’re sealed behind this passphrase. Enter the same one you
+            set earlier to bring them back.
+          </Notice>
+        )}
         <div className="app-form">
           <label className="app-field">
             <span className="app-label">Passphrase</span>
@@ -66,14 +80,15 @@ function VaultGate({ children }: { children: React.ReactNode }) {
               autoComplete="current-password"
             />
             <span className="help">
-              First time here? Choose a passphrase to encrypt your shielded notes. Returning? Enter the
-              same one to decrypt them.
+              {returning
+                ? "Enter the passphrase you set earlier to decrypt your saved positions on this device."
+                : "First time here? Choose a passphrase (8+ characters) to encrypt your positions on this device."}
             </span>
           </label>
         </div>
         <button className="btn btn-primary app-cta" type="button" onClick={submit} disabled={busy || passphrase.length < 8}>
           {busy ? <span className="spin-lime" aria-hidden="true" /> : <Lock aria-hidden="true" />}
-          {busy ? "Unlocking…" : "Unlock"}
+          {busy ? "Unlocking…" : returning ? "Unlock" : "Create vault"}
         </button>
         {error && <Notice tone="error">{error}</Notice>}
       </div>

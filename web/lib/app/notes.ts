@@ -188,6 +188,19 @@ export function isVaultUnlocked(): boolean {
   return sessionKey != null;
 }
 
+/**
+ * Whether an encrypted notes blob already exists on this device — i.e. a RETURNING user, detectable
+ * WITHOUT the passphrase (we only check for ciphertext presence, never decrypt). Lets the unlock gate
+ * say "your positions are here, unlock them" instead of reading like first-time setup after a reload.
+ */
+export function hasStoredNotes(): boolean {
+  try {
+    return store().getItem(KEY) != null;
+  } catch {
+    return false;
+  }
+}
+
 /** Drop the in-memory key (e.g. on sign-out / tab lock). Ciphertext stays at rest. */
 export function lockVault(): void {
   sessionKey = null;
