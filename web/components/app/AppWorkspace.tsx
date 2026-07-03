@@ -6,8 +6,6 @@ import { WalletProvider } from "./WalletContext";
 import { WalletBar } from "./WalletBar";
 import { OpenPosition } from "./OpenPosition";
 import { NoteCard } from "./NoteCard";
-import { PrivacyLedger } from "./PrivacyLedger";
-import { CheatPlayground } from "./CheatPlayground";
 import { Notice } from "./ui";
 import { isVaultUnlocked, loadNotes, unlockVault, type VeilNote } from "@/lib/app/notes";
 
@@ -133,20 +131,6 @@ export function AppWorkspace() {
         <VaultGate>
           <Positions />
         </VaultGate>
-        <div className="app-section-head reveal" style={{ marginTop: 8 }}>
-          <h2 className="app-h2">What Stellar sees</h2>
-          <p className="help">
-            The same loan, two ways: what a naive cross-chain design would publish versus what Veil&apos;s
-            proof actually records. This is the privacy the ZK buys, made legible.
-          </p>
-        </div>
-        <div className="reveal">
-          <PrivacyLedger />
-        </div>
-        <div className="app-section-head reveal" style={{ marginTop: 8 }}>
-          <h2 className="app-h2">Test the defense</h2>
-        </div>
-        <CheatPlayground />
       </section>
     </WalletProvider>
   );
