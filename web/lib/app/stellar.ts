@@ -190,6 +190,47 @@ export function lockNote(
 }
 
 /**
+ * Release the LOCKED note back to an Ethereum address after repayment. The client Groth16
+ * release proof gates it; `recipient` is the raw 20-byte EVM address (BytesN<20> on Soroban).
+ * Public signals order: [nullifier, c0, recipient, root_pool, root_repaid].
+ */
+export function releaseRepaid(
+  proof: SnarkProof,
+  nullifier: bigint,
+  c0: bigint,
+  recipient: string,
+  rootPool: bigint,
+  rootRepaid: bigint,
+  source: string,
+): Promise<string> {
+  // Strip 0x prefix and hex-decode to raw 20 bytes (EVM address as Soroban BytesN<20>).
+  const recipientBytes = Buffer.from(recipient.replace(/^0x/i, ""), "hex");
+  if (recipientBytes.length !== 20) throw new Error("recipient must be a 20-byte EVM address");
+  const recipientScVal = xdr.ScVal.scvBytes(recipientBytes);
+  return invoke(
+    VEIL_POOL,
+    "release_repaid",
+    [proofScVal(proof), u256Val(nullifier), u256Val(c0), recipientScVal, u256Val(rootPool), u256Val(rootRepaid)],
+    source,
+  );
+}
+
+/**
+ * Repay the open borrow position. `positionId` matches the public signal emitted by `borrow`.
+ */
+export function repay(
+  positionId: bigint,
+  source: string,
+): Promise<string> {
+  return invoke(
+    VEIL_VAULT,
+    "repay",
+    [u256Val(positionId)],
+    source,
+  );
+}
+
+/**
  * Prove membership of the LOCKED note above a hidden threshold and disburse real USDC. The client
  * Groth16 borrow proof gates it (fail-closed); `borrower` binds the proof to the caller (anti-replay).
  * Public signals order: [positionId, lockHandle, root, threshold, borrower].

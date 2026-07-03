@@ -44,6 +44,7 @@ const LOCK_ABI = [
     outputs: [],
   },
   { type: "function", name: "isLocked", stateMutability: "view", inputs: [{ name: "C", type: "uint256" }], outputs: [{ type: "bool" }] },
+  { type: "function", name: "isReleased", stateMutability: "view", inputs: [{ name: "C", type: "uint256" }], outputs: [{ type: "bool" }] },
 ] as const;
 
 /** Selector (topic0) of the Axelar gateway `ContractCall` event — the log that keys the message id. */
@@ -143,6 +144,10 @@ export async function lockCollateral(
 
 export async function isLocked(C: bigint): Promise<boolean> {
   return publicClient().readContract({ address: VEIL_ETH_LOCK as Hex, abi: LOCK_ABI, functionName: "isLocked", args: [C] });
+}
+
+export async function isReleased(C: bigint): Promise<boolean> {
+  return publicClient().readContract({ address: VEIL_ETH_LOCK as Hex, abi: LOCK_ABI, functionName: "isReleased", args: [C] });
 }
 
 /**

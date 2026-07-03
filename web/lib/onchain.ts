@@ -15,7 +15,7 @@ export const SEPOLIA_CHAIN_HEX = "0xaa36a7";
 export const WETH_SEPOLIA = "0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14";
 /** VeilEthLock: escrows WETH bound to a note commitment, verifies the opening proof ON Ethereum, and
  *  Axelar-attests `(C, amount)` to the Soroban pool. */
-export const VEIL_ETH_LOCK = "0xE114C79D44Fe888FB2dbF962A29023771Ef3B1D2";
+export const VEIL_ETH_LOCK = "0x2C4A669AD2f5Aeb1Ab91681022D1924DBED6f4AC";
 /** snarkjs Groth16 verifier for the `deposit_from_eth` opening proof (public `[amount, C]`). */
 export const DEPOSIT_VERIFIER = "0xfe346c22f793032a1f5d3ba18d940fe27e9fc19f";
 /** Axelar Sepolia gateway + gas service that `VeilEthLock.lock` routes the attestation through. */
@@ -32,12 +32,13 @@ export const PUBLIC_THRESHOLD_WEI = 5_000_000_000_000_000n; // 0.005 ETH
 
 // ---- Soroban (testnet) ----
 /** veil-pool: receives the Axelar-authenticated deposit (`execute`) and holds the append-only note tree. */
-export const VEIL_POOL = "CDIHDUDQIODLZOJAOCZA7DFIHYSX4C37N42RRFWQRC6NN6P7V6263WTB";
+export const VEIL_POOL = "CA67KKXWF2HMI5YYOVSISB242QDYS5TTPAQBVJBNYTRCYROA3ETKMWUB";
 /** veil-vault: verifies the client borrow proof and disburses real Circle USDC. */
 export const VEIL_VAULT = "CCXGKWB5BQFPIJFARYYIB4FBQPLHGFBVANWHFODMQDRHPF2E3K6DCNKF";
 /** Native Soroban Groth16 (BN254) verifiers the pool/vault call into. */
 export const VEIL_BORROW_VERIFIER = "CBTSWUY5OME4EDY3YA7OBRXHVMSBZH4MWO4GSGNPR4FAGG36RGQGDMM2";
-export const VEIL_LOCK_VERIFIER = "CD4LXCNPZLENGPJCNTSJBNH6MJZ6ZA6SQ7352UA3KNZBHQ3P2ESESH6B";
+export const VEIL_LOCK_VERIFIER = "CA4XWFDN4BDKRDVJ43IQLFQ6IGMU477OAEQXBYFCX2NQ7JWVJHE5A4TE";
+export const VEIL_RELEASE_VERIFIER = "CDH7TOPQL2X3UW6SQNGRSOAOKLRI2QNQU6A3VDHJR2JQDNWMCSS2GLCB";
 
 /** Circle USDC Stellar Asset Contract (testnet SAC). The real token a borrow disburses. */
 export const USDC_SAC = "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA";
