@@ -70,6 +70,7 @@ pub enum Error {
     FloorNotRaised = 17,
     NotLiquidatable = 18,
     InvalidProof = 19,
+    InsufficientRepay = 20,
 }
 
 // ---- Reflector (SEP-40) minimal oracle interface ----
@@ -423,8 +424,16 @@ impl VeilVault {
     /// Repay principal + accrued interest and mark the position REPAID. Appends
     /// `repaid_leaf(lock_handle)` to the Poseidon repaid-tree → the new `R_sor` the unlock circuit
     /// proves membership against (so collateral is recoverable ONLY after repayment). Returns the
-    /// amount repaid.
-    pub fn repay(env: Env, position_id: U256) -> Result<i128, Error> {
+    /// amount actually repaid (`debt`).
+    ///
+    /// `max_repay` is a CALLER-FIXED upper bound on the borrower→vault pull. Interest accrues every
+    /// ledger, so the exact `debt` at execution differs from what the borrower saw at Freighter-sign
+    /// time. Soroban binds the `transfer` sub-invocation auth to a fixed amount; pulling the variable
+    /// `debt` therefore fails with `sceAuth` after any sign delay. Instead we pull the stable
+    /// `max_repay` (auth matches sim→exec regardless of accrual) and refund `max_repay - debt` back to
+    /// the borrower — a vault→borrower transfer the vault self-authorizes. The borrower must transiently
+    /// hold `max_repay` USDC (`debt` + a small cushion); the excess is returned in the same call.
+    pub fn repay(env: Env, position_id: U256, max_repay: i128) -> Result<i128, Error> {
         let cfg = Self::cfg(&env)?;
         let pk = DataKey::Position(position_id);
         let mut pos: Position = env.storage().persistent().get(&pk).ok_or(Error::NoPosition)?;
@@ -436,10 +445,14 @@ impl VeilVault {
         let mut pool = Self::pool(&env)?;
         Self::accrue(&env, &mut pool, cfg.rate_bps);
         let debt = pos.principal_scaled.checked_mul(pool.borrow_index).expect("ovf") / INDEX_SCALE;
+        if max_repay < debt {
+            return Err(Error::InsufficientRepay);
+        }
 
         // Effects first (mark REPAID, return the debt to idle, drop the scaled principal, append the
-        // Poseidon repaid-leaf); the borrower's USDC pull is the LAST interaction and reverts the
-        // whole call on failure, so no effect persists without payment. See audit L-02.
+        // Poseidon repaid-leaf); the USDC interactions are LAST and revert the whole call on failure,
+        // so no effect persists without payment. See audit L-02. Only `debt` is credited to idle — the
+        // refund nets out, so LP accounting is unchanged.
         pool.total_idle += debt;
         pool.total_borrowed_scaled -= pos.principal_scaled;
         pos.status = STATUS_REPAID;
@@ -450,11 +463,15 @@ impl VeilVault {
         Self::bump(&env, &pk);
         Self::append_leaf(&env, DataKey::RepaidTree, tree::repaid_leaf(&env, &lock_handle));
 
-        token::TokenClient::new(&env, &cfg.usdc).transfer(
-            &borrower,
-            &env.current_contract_address(),
-            &debt,
-        );
+        // Pull the caller-fixed `max_repay` (auth is stable across the sign delay), then refund the
+        // accrued-interest excess. The refund is a vault→borrower transfer authorized by the vault
+        // itself (`current_contract_address` as `from`), so it needs no borrower signature.
+        let usdc = token::TokenClient::new(&env, &cfg.usdc);
+        usdc.transfer(&borrower, &env.current_contract_address(), &max_repay);
+        let refund = max_repay - debt;
+        if refund > 0 {
+            usdc.transfer(&env.current_contract_address(), &borrower, &refund);
+        }
         Ok(debt)
     }
 

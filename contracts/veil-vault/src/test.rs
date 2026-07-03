@@ -294,6 +294,7 @@ mod borrow {
         env: Env,
         vault: VeilVaultClient<'a>,
         usdc: token::TokenClient<'a>,
+        sac: Address,
         verifier_id: Address,
         borrower: Address,
         root: U256,
@@ -353,7 +354,7 @@ mod borrow {
         vault.lp_deposit(&lp, &100_000_000_000i128);
 
         let _ = pool_id;
-        Bx { env, vault, usdc, verifier_id, borrower, root }
+        Bx { env, vault, usdc, sac: sac.address(), verifier_id, borrower, root }
     }
 
     use soroban_sdk::IntoVal;
@@ -461,8 +462,9 @@ mod borrow {
         let (pid, _lh, principal) = open(&b);
         assert_eq!(b.vault.repaid_count(), 0);
 
-        // Same ledger → no interest → debt == principal; the borrower holds exactly that.
-        let repaid = b.vault.repay(&pid);
+        // Same ledger → no interest → debt == principal. max_repay == principal ⇒ no refund; the
+        // borrower holds exactly `principal` and pays all of it.
+        let repaid = b.vault.repay(&pid, &principal);
         assert_eq!(repaid, principal, "debt with no accrual equals principal");
         assert_eq!(b.usdc.balance(&b.borrower), 0, "borrower paid the debt back");
         assert_eq!(b.vault.get_position(&pid).unwrap().status, crate::STATUS_REPAID);
@@ -474,9 +476,66 @@ mod borrow {
     #[test]
     fn repay_rejects_a_closed_position() {
         let b = setup_borrow();
-        let (pid, _lh, _p) = open(&b);
-        b.vault.repay(&pid);
-        assert!(b.vault.try_repay(&pid).is_err(), "double repay must be rejected");
+        let (pid, _lh, principal) = open(&b);
+        b.vault.repay(&pid, &principal);
+        assert!(b.vault.try_repay(&pid, &principal).is_err(), "double repay must be rejected");
+    }
+
+    // Cushion the frontend adds over the true debt so a fixed `max_repay` survives sign-delay accrual.
+    const CUSHION: i128 = 100_000; // +0.01 USDC @ 7dp
+
+    #[test]
+    fn repay_refunds_excess_over_debt() {
+        let b = setup_borrow();
+        let (pid, _lh, principal) = open(&b);
+
+        // Give the borrower a cushion above debt (no accrual this ledger ⇒ debt == principal).
+        let usdc_admin = token::StellarAssetClient::new(&b.env, &b.sac);
+        usdc_admin.mint(&b.borrower, &CUSHION);
+        assert_eq!(b.usdc.balance(&b.borrower), principal + CUSHION);
+
+        // Pull the caller-fixed max_repay, refund the excess over the true debt.
+        let repaid = b.vault.repay(&pid, &(principal + CUSHION));
+        assert_eq!(repaid, principal, "settled debt is the true debt, not max_repay");
+        assert_eq!(b.usdc.balance(&b.borrower), CUSHION, "the excess over debt was refunded");
+        assert_eq!(b.vault.get_position(&pid).unwrap().status, crate::STATUS_REPAID);
+    }
+
+    #[test]
+    fn repay_rejects_insufficient_max() {
+        let b = setup_borrow();
+        let (pid, _lh, principal) = open(&b);
+
+        // max_repay below the true debt must be rejected (InsufficientRepay); position stays ACTIVE.
+        let r = b.vault.try_repay(&pid, &(principal - 1));
+        assert!(r.is_err(), "max_repay < debt must be rejected");
+        assert_eq!(
+            b.vault.get_position(&pid).unwrap().status,
+            crate::STATUS_ACTIVE,
+            "a rejected repay leaves the position untouched"
+        );
+    }
+
+    #[test]
+    fn repay_survives_accrual_with_fixed_max() {
+        let b = setup_borrow();
+        let (pid, _lh, principal) = open(&b);
+
+        // Advance the ledger so interest accrues → debt > principal. This mirrors the multi-ledger
+        // Freighter sign delay that broke the old fixed-`debt` pull with sceAuth.
+        b.env.ledger().with_mut(|l| l.sequence_number += 100_000);
+        let debt = b.vault.debt_of(&pid);
+        assert!(debt > principal, "interest accrued: debt exceeds principal");
+
+        // Borrower (holds `principal` from the borrow) tops up to cover debt + cushion.
+        let usdc_admin = token::StellarAssetClient::new(&b.env, &b.sac);
+        usdc_admin.mint(&b.borrower, &(debt - principal + CUSHION));
+
+        // A caller-fixed max_repay (debt + cushion) settles despite accrual; only the cushion refunds.
+        let repaid = b.vault.repay(&pid, &(debt + CUSHION));
+        assert_eq!(repaid, debt, "settled the accrued debt");
+        assert_eq!(b.usdc.balance(&b.borrower), CUSHION, "only the fixed cushion was refunded");
+        assert_eq!(b.vault.get_position(&pid).unwrap().status, crate::STATUS_REPAID);
     }
 
     #[test]

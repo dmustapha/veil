@@ -4,7 +4,7 @@
 
 # Veil: private cross-chain margin lending
 
-Borrow USDC on Stellar against collateral you keep on Ethereum, with a zero-knowledge proof that hides your exact amount and your Ethereum wallet from the Stellar ledger. The collateral never bridges. Real WETH stays locked on Ethereum; only a note commitment, an amount, and a Groth16 proof cross over. What Stellar verifies is the proof, not a relayer's word. Built for Stellar Hacks: Real-World ZK.
+Keep your ETH on Ethereum. Get working USDC on Stellar. Veil lets you borrow real USDC on Stellar against ETH that never leaves Ethereum, and a zero-knowledge proof keeps your amount and your wallet private. The collateral never bridges: only a note commitment, an amount, and a Groth16 proof cross over. What Stellar verifies is the proof, not a relayer's word. Built for Stellar Hacks: Real-World ZK.
 
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -34,7 +34,9 @@ _Demo video link coming soon._
 
 ## What Is Veil?
 
-Veil lets you borrow a stablecoin on one chain against collateral that stays on another, without revealing how much collateral you hold or which wallet holds it. You lock wrapped ETH on Ethereum, prove in zero knowledge that it clears a threshold, and receive USDC on Stellar. The lender, the ledger, and every observer learn only that you cleared the bar, never the figure above it.
+Your capital is ETH on Ethereum, but the liquidity you want to use, Circle USDC on Stellar's fast, low-cost rails, lives on another chain. Reaching it today means moving your ETH across chains or selling it, giving up the position you meant to keep. The usual alternative, borrowing against your ETH instead of selling it, works on Ethereum but broadcasts everything: the exact collateral you lock, the size of your loan, and the wallet behind it.
+
+Veil lets you keep your ETH on Ethereum and borrow real USDC on Stellar against it, privately. You lock wrapped ETH on Ethereum, prove in zero knowledge that it clears a threshold, and receive USDC on Stellar. Only a note commitment, an amount, and a Groth16 proof cross over: the collateral never bridges, and the lender, the ledger, and every observer learn only that you cleared the bar, never the figure above it or the wallet behind it.
 
 Real WETH locked on Ethereum Sepolia. Real Circle USDC disbursed on Stellar. Both zero-knowledge proofs generated in the browser and verified on-chain. Every contract address and transaction below is live and independently verifiable.
 

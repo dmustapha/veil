@@ -301,6 +301,18 @@ impl VeilPool {
         env.storage().instance().extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
     }
 
+    /// Read the pinned vault address (the one bound by `set_vault`). Read-only; used by the
+    /// matched-triple invariant check to assert `pool.vault == V` off-chain. Panics if unset.
+    pub fn vault_addr(env: Env) -> Address {
+        env.storage().instance().get(&ConfigKey::Vault).expect("vault not set")
+    }
+
+    /// Read the pinned Sepolia VeilEthLock source string (bound by `set_eth_lock`). Read-only; used by
+    /// the matched-triple invariant check to assert `pool.eth_lock == E` off-chain. Panics if unset.
+    pub fn eth_lock_addr(env: Env) -> String {
+        env.storage().instance().get(&ConfigKey::EthLockAddr).expect("eth_lock not set")
+    }
+
     /// One-time: wire the Axelar gas service + gas token + per-release gas budget for the reverse leg.
     pub fn set_axelar_outbound(env: Env, gas_service: Address, gas_token: Address, gas_budget: i128) {
         let admin: Address = env.storage().instance().get(&ConfigKey::Admin).expect("not initialized");

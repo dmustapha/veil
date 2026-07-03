@@ -241,16 +241,45 @@ export async function repaidRoot(source: string): Promise<bigint> {
 }
 
 /**
+ * Read a position's current debt (principal + accrued interest) — simulate-only, no signing, no fee.
+ * The frontend calls this immediately before `repay` to size `max_repay = debt + cushion`, so the
+ * borrower→vault pull is a caller-fixed amount (stable across the Freighter sign delay).
+ */
+export async function debtOf(positionId: bigint, source: string): Promise<bigint> {
+  const srv = server();
+  const account = await srv.getAccount(source);
+  const op = new Contract(VEIL_VAULT).call("debt_of", u256Val(positionId));
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: TESTNET_PASSPHRASE,
+  })
+    .addOperation(op)
+    .setTimeout(60)
+    .build();
+  const result = await srv.simulateTransaction(tx);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sim = result as any;
+  if (sim.error) throw new Error(`debt_of simulation failed: ${sim.error}`);
+  const retVal = sim.result?.retval;
+  if (!retVal) throw new Error("debt_of returned no value");
+  return scValToNative(retVal) as bigint;
+}
+
+/**
  * Repay the open borrow position. `positionId` matches the public signal emitted by `borrow`.
+ * `maxRepay` is a caller-fixed upper bound on the borrower→vault pull (debt + a small cushion): the
+ * vault pulls exactly `maxRepay` and refunds `maxRepay - debt` in the same call, so the transfer
+ * authorization stays valid no matter how much interest accrues while the user is signing.
  */
 export function repay(
   positionId: bigint,
+  maxRepay: bigint,
   source: string,
 ): Promise<string> {
   return invoke(
     VEIL_VAULT,
     "repay",
-    [u256Val(positionId)],
+    [u256Val(positionId), nativeToScVal(maxRepay, { type: "i128" })],
     source,
   );
 }

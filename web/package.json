@@ -18,7 +18,8 @@
     "check:axelar": "tsx scripts/check-axelar.ts",
     "validate:tree": "tsx scripts/validate-tree.ts",
     "e2e:prove-lock": "VEIL_E2E=1 tsx scripts/e2e/prove-lock.ts",
-    "e2e:prove-borrow": "VEIL_E2E=1 tsx scripts/e2e/prove-borrow.ts"
+    "e2e:prove-borrow": "VEIL_E2E=1 tsx scripts/e2e/prove-borrow.ts",
+    "verify:triple": "tsx scripts/verify-triple.ts"
   },
   "dependencies": {
     "@stellar/freighter-api": "^6.0.1",

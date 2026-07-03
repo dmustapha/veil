@@ -18,7 +18,7 @@ import {
   approveWeth, isLocked, isReleased, lockCollateral, wethAllowance, wethBalance, wrapEth,
 } from "./eth";
 import { waitForAxelarApproval, type AxelarMessage } from "./axelar";
-import { borrow, execute, lockNote, poolLeafEvents, repaidRoot, repay, releaseRepaid } from "./stellar";
+import { borrow, debtOf, execute, lockNote, poolLeafEvents, repaidRoot, repay, releaseRepaid } from "./stellar";
 import { updateNote, toLockNote, toBorrowNote, type VeilNote } from "./notes";
 import { AXELAR_GAS_WEI, PUBLIC_THRESHOLD_WEI } from "@/lib/onchain";
 import { proveBorrow, proveDepositFromEth, proveLock, proveRelease, publicSignalsToBorrowArgs, publicSignalsToLockArgs, publicSignalsToReleaseArgs, toEvmProof } from "@/lib/prove/groth16";
@@ -226,6 +226,13 @@ export async function runBorrowPipeline(
 }
 
 /**
+ * Cushion added over the live debt when sizing `max_repay`, in USDC base units (7dp). 0.01 USDC
+ * covers ~140k ledgers (~8 days) of interest at ~0.7 units/ledger — far beyond any Freighter sign
+ * delay. The borrower holds this extra amount only transiently; the vault refunds the unused excess.
+ */
+const REPAY_CUSHION = 100_000n;
+
+/**
  * Drive a `borrowed` note through loan repayment, the shielded release proof, the Axelar reverse hop,
  * and WETH recovery on Ethereum — returning the note in the `released` state. Fully resumable: each
  * step checks the live note status / on-chain state and skips work already done so a reload picks up
@@ -249,7 +256,13 @@ export async function runRepayPipeline(
   if (current.status === "borrowed") {
     onStep("repay");
     const pid = derivePositionId(BigInt(current.loanSecret));
-    const repayTx = await repay(pid, xlmAddress);
+    // Interest accrues every ledger, so the debt at execution is higher than what the user sees when
+    // Freighter signs. We pull a caller-fixed `maxRepay = debt + cushion` (auth stays valid across the
+    // sign delay) and let the vault refund the unused excess. `REPAY_CUSHION` = 0.01 USDC @ 7dp, which
+    // covers ~140k ledgers (~8 days) of accrual; the borrower only holds the extra 0.01 transiently.
+    const debt = await debtOf(pid, xlmAddress);
+    const maxRepay = debt + REPAY_CUSHION;
+    const repayTx = await repay(pid, maxRepay, xlmAddress);
     current = await applyPatch(current, { status: "repaid", repayTx });
   }
 

@@ -449,3 +449,26 @@ already consumed, the fix is a matched fresh triple (no code changes):
 - Web onchain.ts repointed → P2/V2/E3; frontend redeployed to veilzk.vercel.app.
 - SUPERSEDES the earlier CA67KKXW / CCXGKWB5 / 0x2C4A669A set (those are abandoned; CA67KKXW's set_vault
   is mis-bound and unusable).
+
+## ⚠️ REPAY-FIX MATCHED REDEPLOY (2026-07-03, P3/V3/E4) — admin `veil-spike`
+Fixes the repay/release reverse leg: `veil-vault.repay` now takes a caller-fixed `max_repay` (pull +
+vault-self-auth refund of the accrued-interest excess), so the borrower→vault transfer auth stays valid
+across the Freighter sign delay (was `sceAuth`). Because `set_vault`/`set_eth_lock` are one-time and the
+vault's `veil_pool` is constructor-immutable, this needs a fresh matched triple. veil-pool also gained two
+read-only getters (`vault_addr`, `eth_lock_addr`) for the invariant check. **P2/V2/E3 left LIVE untouched
+as rollback until the live e2e proves green.**
+- **veil-pool P3:** `CBDCEWCXXM6QFGKWA466RF2I5LNY5N2CKMVKLCBIQUXOK5IK5W5INJAQ` (deploy tx `a75b0bb7be1e9a8807082d5318da7dd59d57f7e6bbaff09a7b9fe7e7debaedc6`)
+  - constructor: admin veil-spike, token USDC_SAC `CBIELTK6…DAMA`, levels 16, lock `CA4XWFDN…`, unlock
+    `CBXNZD5E…`, seize `CBLRFQ6S…`, axelar_gateway `CB2JYOOZ…IQPIAYY3`, source_chain `ethereum-sepolia`,
+    release `CDH7TOPQ…` (SAME verifiers/gateway/source_chain as P2).
+  - `set_vault(V3)` tx `56ce09a869bd293b0064070101ce394997aaa702ecc8e4e1ca645d76154bab9f`
+  - `set_eth_lock(0x81078A116b93Da170BB4f7B6282F7a26566e8933)` tx `4f68705781ad37867ec71b1452bdd6c1c59e3032c8f25b046db29ab5b643cc45`
+- **veil-vault V3:** `CB7PH2V266O5GKLPP7CC5VE2LC5RLN5KXHTN6ETR2Y5JWIJIA3XP2TT2` (deploy tx `8723724ae7f5bf7d5fb9fa5d03bea165aab844bcdd4d8efc4b955ba6cd0b4bfd`)
+  - constructor: admin veil-spike, borrow_verifier `CBTSWUY5…`, veil_pool=P3, usdc `CBIELTK6…`, reflector
+    `CCYOZJCO…` Other(ETH), ltv 7000 / liq 8000 / min_threshold 100000000000 / term 500000 / rate 500
+    (byte-identical to V2 except veil_pool=P3).
+  - LP: `lp_deposit` 4 USDC (40000000) from veil-lp tx `9b90d968cddf9b051a97af6769e4bc5d904b54e03dc4cfd232aec0a9be1cf506`. **NEEDS TOP-UP to ~14 USDC before the e2e borrow (~6 USDC).**
+- **VeilEthLock E4 (Sepolia):** `0x81078A116b93Da170BB4f7B6282F7a26566e8933` (deploy via DeployEthLock.s.sol; fresh DepositFromEthVerifier `0xaB182da1CAfaB22a75a47Ec2770Df626f4AD8e4E`; WETH `0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14`, gateway `0xe432150cce91c13a887f7D836923d5597adD8E31`, gasService `0xbE406F0189A0B4cf3A05C286473D23791Dd44Cc6`)
+  - `setDestination("stellar-2026-q1-2", P3)` tx `0x3e69f176bb6973251c00c472c8edca04064a61ea39c143ca0462033c0211b841`
+- **Invariant check:** `pnpm verify:triple` → 4/4 pins PASS (V3.veil_pool==P3, P3.vault_addr==V3, P3.eth_lock_addr==E4, E4.destinationContract==P3 + destinationChain stellar-2026-q1-2).
+- Web onchain.ts/constants.ts repoint → P3/V3/E4 + Vercel redeploy pending; **alias veilzk.vercel.app HELD on P2/V2/E3 until the live lock→borrow→repay→release e2e passes.**
