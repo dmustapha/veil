@@ -27,7 +27,7 @@ const CANONICAL = resolve(HERE, "../../circom/lock_input.json"); // known-good P
 
 const SOROBAN_RPC = "https://soroban-testnet.stellar.org";
 const TESTNET_PASSPHRASE = "Test SDF Network ; September 2015";
-const LOCK_VERIFIER = "CD4LXCNPZLENGPJCNTSJBNH6MJZ6ZA6SQ7352UA3KNZBHQ3P2ESESH6B";
+const LOCK_VERIFIER = "CA4XWFDN4BDKRDVJ43IQLFQ6IGMU477OAEQXBYFCX2NQ7JWVJHE5A4TE";
 const SOURCE = "GABHHKTQVGUQPZMXYJIP6OESTUS6QQA3AICEQI77B4FORUW4CPIVFXIF"; // veil-spike (exists on testnet)
 
 function fail(msg: string): never {
@@ -70,6 +70,7 @@ async function main() {
     nk: BigInt(v.nk),
     lockId: BigInt(v.lockId),
     blindingOut: BigInt(v.blindingOut),
+    r: BigInt(v.r), // B1′ binding random (persisted in lock_input.json)
   };
   const path: LockMerklePath = {
     leafIndex: BigInt(v.leafIndex),

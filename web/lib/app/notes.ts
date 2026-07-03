@@ -8,7 +8,7 @@
  * ever go on-chain. The whole lifecycle is: create → lock WETH on Ethereum (bound to the AVAILABLE
  * commitment) → attested into the pool → lock note (AVAILABLE→LOCKED) → borrow against the LOCKED note.
  */
-import { P } from "../prove/poseidon2";
+import { hash2, P } from "../prove/poseidon2";
 import { DS_NOTE_AVAILABLE, DS_NOTE_LOCKED, noteCommitment, spendPkFromNk } from "../prove/notes";
 import type { LockNote } from "../prove/lock";
 import type { Note as BorrowNote } from "../prove/witness";
@@ -36,7 +36,9 @@ export type NoteStatus =
   | "locked-eth" // WETH escrowed on Sepolia against the AVAILABLE commitment
   | "attested" // Axelar-attested into the pool; AVAILABLE leaf known
   | "locked-note" // spent AVAILABLE → minted LOCKED note in the pool
-  | "borrowed"; // borrowed USDC against the LOCKED note
+  | "borrowed" // borrowed USDC against the LOCKED note
+  | "repaid" // loan repaid; WETH escrow eligible for release
+  | "released"; // WETH escrow released back to borrower on Ethereum
 
 /**
  * One shielded note across its whole life. The `*` secret fields are the private witness for the lock
@@ -52,7 +54,8 @@ export interface VeilNote {
   blindingIn: string; // AVAILABLE-note blinding
   blindingOut: string; // LOCKED-note blinding (fresh, distinct)
   loanSecret: string; // → positionId at borrow
-  lockId: string; // → lockHandle; the LOCKED note's aux
+  r: string; // B1′ binding random: lockId = Poseidon2(C0, r, DS_LOCKBIND=0x35)
+  lockId: string; // → lockHandle; the LOCKED note's aux (derived from C0 + r, NOT random)
   // --- public identities ---
   commitmentAvailable: string; // NoteCommitment(0x10, amount, spendPk, blindingIn, 0)
   commitmentLocked: string; // NoteCommitment(0x11, amount, spendPk, blindingOut, lockId)
@@ -77,9 +80,12 @@ export function createNote(amountWei: bigint): VeilNote {
   const blindingIn = randomFieldElement();
   const blindingOut = randomFieldElement();
   const loanSecret = randomFieldElement();
-  const lockId = randomFieldElement();
   const spendPk = spendPkFromNk(nk);
   const commitmentAvailable = noteCommitment(DS_NOTE_AVAILABLE, amountWei, spendPk, blindingIn, 0n);
+  // B1′: derive lockId from the AVAILABLE commitment + a fresh binding random `r` (NOT a random lockId).
+  // This enforces the C0↔lockId link in both the lock and release_repaid circuits.
+  const r = randomFieldElement();
+  const lockId = hash2(commitmentAvailable, r, 0x35n); // DS_LOCKBIND = 0x35
   const commitmentLocked = noteCommitment(DS_NOTE_LOCKED, amountWei, spendPk, blindingOut, lockId);
   return {
     amount: amountWei.toString(),
@@ -88,6 +94,7 @@ export function createNote(amountWei: bigint): VeilNote {
     blindingIn: blindingIn.toString(),
     blindingOut: blindingOut.toString(),
     loanSecret: loanSecret.toString(),
+    r: r.toString(),
     lockId: lockId.toString(),
     commitmentAvailable: commitmentAvailable.toString(),
     commitmentLocked: commitmentLocked.toString(),
@@ -105,6 +112,32 @@ export function toLockNote(n: VeilNote): LockNote {
     nk: BigInt(n.nk),
     lockId: BigInt(n.lockId),
     blindingOut: BigInt(n.blindingOut),
+    r: BigInt(n.r),
+  };
+}
+
+/**
+ * The private opening needed by the `release_repaid` reverse-leg circuit: proves the LOCKED note C1
+ * is in the pool + repaid tree, then re-proves B1′ (lockId = Poseidon2(C0, r)) to bind the release
+ * to the original Ethereum escrow. Mirrors `toLockNote` but exposes the LOCKED note's blinding and `r`.
+ */
+export interface ReleaseNote {
+  amount: bigint;
+  blindingOut: bigint; // C1 (LOCKED note) blinding — "blindingIn" in the release circuit
+  spendPk: bigint;
+  nk: bigint;
+  lockId: bigint;
+  r: bigint; // B1′ binding random (same r drawn at note creation)
+}
+
+export function toReleaseNote(n: VeilNote): ReleaseNote {
+  return {
+    amount: BigInt(n.amount),
+    blindingOut: BigInt(n.blindingOut),
+    spendPk: BigInt(n.spendPk),
+    nk: BigInt(n.nk),
+    lockId: BigInt(n.lockId),
+    r: BigInt(n.r),
   };
 }
 

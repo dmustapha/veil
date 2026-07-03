@@ -16,6 +16,8 @@ const PILL: Record<NoteStatus, string> = {
   attested: "Ready to borrow",
   "locked-note": "Borrowing",
   borrowed: "Borrowed",
+  repaid: "Repaid",
+  released: "Released",
 };
 
 /** A short 0x identifier for a note, derived from its (public) AVAILABLE commitment. */

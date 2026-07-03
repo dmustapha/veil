@@ -2,11 +2,11 @@
 // same Poseidon2 primitives the circuits use, the secrets are uniform canonical field elements, and the
 // witness converters feed the lock/borrow provers the exact openings behind the committed identities.
 import { describe, expect, it } from "vitest";
-import { P } from "../prove/poseidon2";
+import { hash2, P } from "../prove/poseidon2";
 import { DS_NOTE_AVAILABLE, DS_NOTE_LOCKED, noteCommitment, spendPkFromNk } from "../prove/notes";
 import {
   createNote, getNote, isVaultUnlocked, loadNotes, lockVault, randomFieldElement,
-  saveNote, toBorrowNote, toLockNote, unlockVault, updateNote,
+  saveNote, toBorrowNote, toLockNote, toReleaseNote, unlockVault, updateNote,
 } from "./notes";
 
 describe("randomFieldElement", () => {
@@ -59,6 +59,19 @@ describe("createNote", () => {
     expect(() => createNote(0n)).toThrow();
     expect(() => createNote(1n << 128n)).toThrow();
   });
+
+  it("derives lockId = Poseidon2(C0, r, 0x35) — B1′ binding", () => {
+    const note = createNote(1000n);
+    const expected = hash2(BigInt(note.commitmentAvailable), BigInt(note.r), 0x35n);
+    expect(BigInt(note.lockId)).toBe(expected);
+  });
+
+  it("r is a non-zero canonical field element", () => {
+    const note = createNote(1000n);
+    const r = BigInt(note.r);
+    expect(r).toBeGreaterThan(0n);
+    expect(r).toBeLessThan(P);
+  });
 });
 
 describe("witness converters", () => {
@@ -72,11 +85,28 @@ describe("witness converters", () => {
     );
   });
 
+  it("toLockNote passes r through for the B1′ circuit constraint", () => {
+    const l = toLockNote(n);
+    expect(l.r).toBe(BigInt(n.r));
+    // The circuit will enforce lockId = hash2(C0, r, 0x35); verify that binding holds in the adapter too.
+    expect(hash2(BigInt(n.commitmentAvailable), l.r, 0x35n)).toBe(l.lockId);
+  });
+
   it("toBorrowNote carries the LOCKED opening behind commitmentLocked", () => {
     const b = toBorrowNote(n);
     expect(noteCommitment(DS_NOTE_LOCKED, b.amount, b.spendPk, b.blinding, b.lockId)).toBe(
       BigInt(n.commitmentLocked),
     );
+  });
+
+  it("toReleaseNote exposes the LOCKED note opening + r for the release_repaid circuit", () => {
+    const rel = toReleaseNote(n);
+    expect(rel.amount).toBe(BigInt(n.amount));
+    expect(rel.blindingOut).toBe(BigInt(n.blindingOut));
+    expect(rel.spendPk).toBe(BigInt(n.spendPk));
+    expect(rel.nk).toBe(BigInt(n.nk));
+    expect(rel.lockId).toBe(BigInt(n.lockId));
+    expect(rel.r).toBe(BigInt(n.r));
   });
 });
 

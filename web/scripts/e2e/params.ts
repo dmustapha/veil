@@ -29,7 +29,10 @@ export const AMOUNT = 2_000_000_000_000_000n; // 2e15
 export const THRESHOLD = 1_000_000_000_000_000n; // 1e15
 export const BLINDING_IN = 1n; // AVAILABLE note blinding (deposit)
 export const BLINDING_OUT = 7n; // LOCKED note blinding (mint)
+// NOTE: LOCK_ID + R are now B1′-linked (lockId = Poseidon2(C0, r, 0x35)). These demo constants
+// pre-date the B1′ constraint. A live e2e must derive lockId from C0+r (Task 12 e2e update).
 export const LOCK_ID = 3n;
+export const R = 1n; // placeholder; live e2e must use r = randomFieldElement() → lockId = hash2(C0,r,0x35)
 export const LOAN_SECRET = 4n;
 
 /** Empty depth-16 tree zero-siblings (circom/merkle_proof_input.json = get_zeroes[0..15]). The

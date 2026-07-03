@@ -15,6 +15,7 @@ const MAX_U128 = 1n << 128n;
  * The AVAILABLE note being locked, plus the spend key and the fresh output blinding — the PRIVATE
  * witness for `lock.circom`. `spendPk` MUST equal `H1(nk, DS_NK=0x34)` (the circuit constrains
  * `nkBind.out === spendPk`, audit C-01), so a note determines exactly one nullifier.
+ * `r` is the B1′ binding random: the circuit enforces `lockId === Poseidon2(C0, r, DS_LOCKBIND=0x35)`.
  */
 export interface LockNote {
   amount: bigint; // hidden collateral amount (same in the AVAILABLE and minted LOCKED note)
@@ -23,6 +24,7 @@ export interface LockNote {
   nk: bigint; // nullifier key (secret); the pool never sees it
   lockId: bigint; // lock identifier bound into the LOCKED note (aux) and public signal
   blindingOut: bigint; // fresh blinding for the minted LOCKED note
+  r: bigint; // B1′ binding random: lockId = Poseidon2(C0, r, 0x35)
 }
 
 /** The AVAILABLE note's position in the pool tree: index, sibling path, and the root it proves against. */
@@ -43,6 +45,7 @@ export interface LockWitness {
   leafIndex: string;
   pathElements: string[];
   blindingOut: string;
+  r: string; // B1′ binding random (private; stays on device)
 }
 
 /**
@@ -62,7 +65,7 @@ export function buildLockWitness(note: LockNote, path: LockMerklePath): LockWitn
   }
   for (const [name, val] of [
     ["blindingIn", note.blindingIn], ["spendPk", note.spendPk], ["nk", note.nk],
-    ["lockId", note.lockId], ["blindingOut", note.blindingOut], ["root", path.root],
+    ["lockId", note.lockId], ["blindingOut", note.blindingOut], ["r", note.r], ["root", path.root],
     ...path.pathElements.map((e, i) => [`pathElements[${i}]`, e] as const),
   ] as const) {
     if (val < 0n || val >= BN254_R) throw new Error(`${name} is not a canonical BN254 field element`);
@@ -77,5 +80,6 @@ export function buildLockWitness(note: LockNote, path: LockMerklePath): LockWitn
     leafIndex: path.leafIndex.toString(),
     pathElements: path.pathElements.map((e) => e.toString()),
     blindingOut: note.blindingOut.toString(),
+    r: note.r.toString(),
   };
 }

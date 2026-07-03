@@ -5,7 +5,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildLockWitness, type LockMerklePath, type LockNote } from "../../lib/prove/lock";
 import { proveLock, toSorobanProof, publicSignalsToLockArgs } from "../../lib/prove/groth16";
-import { AMOUNT, BLINDING_IN, BLINDING_OUT, LOCK_ID, NK, SPEND_PK, ZEROS, proofJson } from "./params";
+import { AMOUNT, BLINDING_IN, BLINDING_OUT, LOCK_ID, R, NK, SPEND_PK, ZEROS, proofJson } from "./params";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CIRCUITS = resolve(HERE, "../../public/circuits/lock");
@@ -21,6 +21,7 @@ async function main() {
     nk: NK,
     lockId: LOCK_ID,
     blindingOut: BLINDING_OUT,
+    r: R, // B1′ binding random (placeholder; update lockId+r together via Task 12 e2e update)
   };
   // AVAILABLE note is leaf 0 of the fresh tree → siblings are the empty-tree zeros.
   const path: LockMerklePath = { leafIndex: 0n, pathElements: ZEROS, root: BigInt(rootR0) };
