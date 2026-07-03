@@ -467,7 +467,7 @@ as rollback until the live e2e proves green.**
   - constructor: admin veil-spike, borrow_verifier `CBTSWUY5…`, veil_pool=P3, usdc `CBIELTK6…`, reflector
     `CCYOZJCO…` Other(ETH), ltv 7000 / liq 8000 / min_threshold 100000000000 / term 500000 / rate 500
     (byte-identical to V2 except veil_pool=P3).
-  - LP: `lp_deposit` 4 USDC (40000000) from veil-lp tx `9b90d968cddf9b051a97af6769e4bc5d904b54e03dc4cfd232aec0a9be1cf506`. **NEEDS TOP-UP to ~14 USDC before the e2e borrow (~6 USDC).**
+  - LP: `lp_deposit` 4 USDC tx `9b90d968cddf9b051a97af6769e4bc5d904b54e03dc4cfd232aec0a9be1cf506` + 15 USDC tx `4d5b6072d27b8cc89409536a796c8c913ea78f4d3d3226b4723a9c77efb25b78` = **total_assets 19 USDC (190000000). Funded and ready for the e2e borrow.**
 - **VeilEthLock E4 (Sepolia):** `0x81078A116b93Da170BB4f7B6282F7a26566e8933` (deploy via DeployEthLock.s.sol; fresh DepositFromEthVerifier `0xaB182da1CAfaB22a75a47Ec2770Df626f4AD8e4E`; WETH `0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14`, gateway `0xe432150cce91c13a887f7D836923d5597adD8E31`, gasService `0xbE406F0189A0B4cf3A05C286473D23791Dd44Cc6`)
   - `setDestination("stellar-2026-q1-2", P3)` tx `0x3e69f176bb6973251c00c472c8edca04064a61ea39c143ca0462033c0211b841`
 - **Invariant check:** `pnpm verify:triple` → 4/4 pins PASS (V3.veil_pool==P3, P3.vault_addr==V3, P3.eth_lock_addr==E4, E4.destinationContract==P3 + destinationChain stellar-2026-q1-2).
