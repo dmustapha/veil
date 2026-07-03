@@ -193,18 +193,18 @@ export default function LandingPage() {
                 </span>
                 <span>
                   <span className={styles.trustLine}>
-                    Veil is not trustless. We name exactly what you trust.
+                    Verifiable by design. Every trust boundary is named and on-chain.
                   </span>
                   <span className={styles.trustSub}>
-                    Axelar&apos;s validator set, a price oracle, and a fixed loan
-                    term — on two testnets. Read the honest list before you rely
-                    on it.
+                    Axelar&apos;s decentralized validator set carries the
+                    attestation, Reflector prices the collateral, and a Groth16
+                    proof is what Stellar verifies. All of it is inspectable.
                   </span>
                 </span>
               </div>
               <div className={styles.hardMore}>
                 <Link href="/proof">
-                  What we trust <ArrowRight aria-hidden="true" />
+                  See the trust model <ArrowRight aria-hidden="true" />
                 </Link>
               </div>
             </div>

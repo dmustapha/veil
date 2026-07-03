@@ -67,8 +67,8 @@ export default function ProofPage() {
           <p className="app-lead reveal" data-d="3">
             This is the evidence room. The real {PROOF.size} proof, the exact
             split between what Stellar sees and what stays hidden, the contracts
-            that gate the money, and an honest list of what Veil still trusts.
-            Every value below is read from a live testnet, not a screenshot.
+            that gate the money, and the trust model named in full. Every value
+            below is read from a live testnet, not a screenshot.
           </p>
         </section>
 
@@ -260,7 +260,7 @@ export default function ProofPage() {
         {/* 6. DEPLOYED CONTRACTS + REAL TX LINKS */}
         <DeployedContracts />
 
-        {/* 7. HONEST TRUST DISCLOSURE */}
+        {/* 7. TRUST MODEL */}
         <TrustFooter />
       </main>
       <SiteFooter />

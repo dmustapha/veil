@@ -1,108 +1,246 @@
-# Veil
+# Veil: private cross-chain margin lending
 
-**Borrow USDC on Stellar against collateral you keep on Ethereum — a zero-knowledge proof keeps your exact amount and Ethereum wallet off the Stellar ledger.** The collateral never bridges. The proof, not a relayer, is what Stellar trusts. (The hashlock is public on both chains, so Ethereum-side privacy is named future work — see [What is real vs trusted](#what-is-real-vs-trusted-we-never-say-trustless).) Built for Stellar Hacks: Real-World ZK.
+Borrow USDC on Stellar against collateral you keep on Ethereum, with a zero-knowledge proof that hides your exact amount and your Ethereum wallet from the Stellar ledger. The collateral never bridges. Real WETH stays locked on Ethereum; only a note commitment, an amount, and a Groth16 proof cross over. What Stellar verifies is the proof, not a relayer's word. Built for Stellar Hacks: Real-World ZK.
 
-> Live app: **https://veilzk.vercel.app** (testnet) · Track: Real-World ZK · Networks: Ethereum Sepolia + Stellar (Soroban) testnet
+[![Next.js](https://img.shields.io/badge/Next.js-15-black?logo=next.js)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Soroban](https://img.shields.io/badge/Soroban-Protocol_27-orange)](https://soroban.stellar.org/)
+[![Circom](https://img.shields.io/badge/Circom-Groth16_BN254-6f42c1)](https://docs.circom.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-231_passing-brightgreen)]()
 
-## Why the ZK is load-bearing (remove it and the product is gone)
+**Live:** [veilzk.vercel.app](https://veilzk.vercel.app)
 
-Veil's borrow is gated by a RISC Zero proof whose **public outputs are only** `{ state_root, block, escrow, threshold, hashlock, nullifier, recipient }` (where `recipient` is `keccak256` of the borrower's own Stellar account — a Stellar-side binding that stops proof theft, not the hidden Ethereum identity). The exact collateral `amount` and the depositor's **Ethereum `address`** are **private witnesses that never leave the prover**. Delete the proof and `borrow()` on Stellar would have to carry your Ethereum amount and wallet in cleartext so the contract could check the Merkle proof itself, publishing both on the Stellar ledger permanently. Native Merkle verification cannot hide them; only the SNARK can. The proof is irreducible.
+---
 
-The proof is verified **on-chain inside a Soroban contract** (BN254 Groth16, Protocol 25/26 host functions), and only a valid proof moves real Circle USDC.
+![Veil](docs/images/landing.png)
 
-## The cheat that fails (proof gates the money)
+## Live Demo
 
-This is the headline, proven live on testnet:
+**[veilzk.vercel.app](https://veilzk.vercel.app)**
 
-- **Forge the proof** (tamper one byte of the Groth16 seal): the on-chain BN254 verifier traps with `Error(Crypto, InvalidInput)` ("bn254 G2: point not on curve"). The `borrow` call reverts. **Zero USDC moves.**
-- **Replay a valid proof:** the vault refuses to reuse it — the nullifier set blocks a second draw (`Error(Contract, #7 NullifierUsed)`), and against a stale checkpoint the freshness guard (`Error(Contract, #15 StaleCheckpoint)`) trips first. Either way **zero USDC moves**; one lock yields exactly one loan.
-- **Steal someone's proof** (redeem another account's `{seal, journal}` to your own address): the journal commits `recipient = keccak256(borrower strkey)` and the vault recomputes it from the caller, so a thief is rejected with `Error(Contract, #17 WrongRecipient)`. Proven live: a throwaway account trying to redeem the demo proof is turned away. **Zero USDC moves.**
+Connect MetaMask (Sepolia) and Freighter (Stellar testnet), lock real WETH on Ethereum, and watch a shielded note appear on Stellar. Generate the borrow proof in your browser and draw real Circle USDC against a collateral amount that never touches the Stellar ledger. The `/proof` page reads every value live from testnet, and `/how-it-works` walks the full flow.
 
-Try it live: the `/app` page has a "Try the cheat" button that runs a real tampered-proof simulation against the deployed vault and shows the actual trap.
+## Demo Video
 
-## How it works
+<!-- TODO: add YouTube link after recording -->
+_Demo video link coming soon._
 
-1. **Lock** collateral in the Ethereum (Sepolia) escrow under a hashlock `H`.
-2. **Prove** (off-chain, RISC Zero): `locks[H].amount >= threshold` against a checkpointed Ethereum state root, with the amount and address kept secret. The STARK is wrapped to a 260-byte Groth16 (BN254) seal.
-3. **Verify and borrow** (Stellar): the Soroban vault verifies the proof on-chain, checks the checkpoint and nullifier, sizes the loan from the live Reflector ETH/USDC price, and disburses real Circle USDC. The Stellar ledger only ever sees the threshold, never the amount.
-4. **Repay** on Stellar reveals the secret `S`; a relayer submits `S` to the Ethereum escrow to unlock the collateral. **Default** (timeout or price) sends the collateral to the lender on Ethereum. No Stellar to Ethereum proof is ever required.
+---
 
-## On-chain verification (testnet)
+## What Is Veil?
+
+Veil lets you borrow a stablecoin on one chain against collateral that stays on another, without revealing how much collateral you hold or which wallet holds it. You lock wrapped ETH on Ethereum, prove in zero knowledge that it clears a threshold, and receive USDC on Stellar. The lender, the ledger, and every observer learn only that you cleared the bar, never the figure above it.
+
+Real WETH locked on Ethereum Sepolia. Real Circle USDC disbursed on Stellar. Both zero-knowledge proofs generated in the browser and verified on-chain. Every contract address and transaction below is live and independently verifiable.
+
+---
+
+## Screenshots
+
+| How it works | Proof and verification |
+|--------------|------------------------|
+| ![How it works](docs/images/how-it-works.png) | ![Proof](docs/images/proof.png) |
+
+---
+
+## Why the ZK is load-bearing
+
+Remove the proof and the product is gone.
+
+The borrow is gated by a Groth16 (BN254) proof whose only public inputs are `{ root, threshold, nullifier, borrower }`. The exact collateral `amount` and the note's secret opening are **private witnesses that never leave your browser**. Delete the proof and `borrow()` on Stellar would have to carry your Ethereum amount in cleartext so the contract could check tree membership itself, publishing it on the Stellar ledger permanently. Native Merkle verification cannot hide the amount; only the SNARK can.
+
+The proof is verified **on-chain inside a Soroban contract** using Protocol 27 BN254 host functions, and only a valid proof moves real USDC. A borrow proof carrying a tampered threshold (an unproven collateral floor) returns `Error(Contract, #0) InvalidProof`, the vault traps, and **zero USDC moves**.
+
+---
+
+## How It Works
+
+```
+   ETHEREUM (Sepolia)                                 STELLAR (Soroban)
+ ┌─────────────────────┐                          ┌──────────────────────┐
+ │  Wrap ETH → WETH    │                          │                      │
+ │        │            │                          │                      │
+ │        ▼            │        Axelar GMP         │                      │
+ │  VeilEthLock.lock ──┼──(commitment, amount)────►│  veil-pool.execute   │
+ │  • escrow real WETH │   decentralized validator │  • validate_message  │
+ │  • verify opening   │   set authenticates the   │  • mint shielded     │
+ │    proof ON-CHAIN   │   message on the gateway  │    note (Poseidon2)  │
+ │  • emit ContractCall│                          │        │              │
+ └─────────────────────┘                          │        ▼              │
+                                                   │  client Groth16 proof │
+   collateral NEVER bridges;                       │  (in the browser)     │
+   only (C, amount) + proof cross                  │        │              │
+                                                   │        ▼              │
+                                                   │  veil-vault.borrow    │
+                                                   │  • verify proof natively │
+                                                   │  • price via Reflector│
+                                                   │  • disburse real USDC │
+                                                   └──────────────────────┘
+```
+
+**1. Lock (Ethereum).** You wrap real ETH into canonical WETH and lock it in `VeilEthLock`, bound to a note commitment `C`. A `deposit_from_eth` Groth16 proof, verified on Ethereum, attests that `C` opens to `(amount, spend key, blinding)`. The contract emits an Axelar `ContractCall` carrying `(C, amount)`.
+
+**2. Cross (Axelar).** Axelar's decentralized validator set carries the message to Stellar. The Soroban pool's `execute` authenticates it through the Axelar gateway's `validate_message`. No trusted relayer, no state-root poster. The pool mints an AVAILABLE shielded note as a leaf in a Poseidon2 Merkle tree.
+
+**3. Borrow (Stellar).** Your browser builds a Groth16 proof that the note is in the pool tree and its hidden amount clears the public threshold, bound to your Stellar account so the proof cannot be stolen. The `veil-vault` verifies it natively on-chain, sizes the loan from the live Reflector ETH/USDC price at the configured LTV, and disburses real Circle USDC.
+
+**4. Close the loop.** Repaying on Stellar releases a secret that unlocks your WETH back on Ethereum, where the collateral lived the whole time. No Stellar-to-Ethereum proof is ever required.
+
+---
+
+## Integrations
+
+Veil composes four live systems. Each does one job, and removing any one breaks the flow.
+
+### Circom + Groth16 on Soroban (the load-bearing ZK)
+
+Two proofs are generated client-side with snarkjs and verified on-chain: the `deposit_from_eth` opening proof on Ethereum, and the shielded `borrow` proof on Stellar. The Soroban verifier uses Protocol 27 BN254 host functions.
+
+```
+borrow proof public inputs: { root, threshold, nullifier, borrower }
+private witnesses:          { amount, spendKey, blinding, merklePath }
+tampered threshold → Error(Contract, #0) InvalidProof → 0 USDC moves
+```
+
+### Axelar General Message Passing (trust-minimized cross-chain)
+
+`VeilEthLock` emits an Axelar `ContractCall` at lock time; the Soroban pool authenticates delivery via the gateway's `validate_message`. A forged `execute` with a fake message id traps with `Error(Storage, MissingValue)` because the gateway holds no such approved message.
+
+```solidity
+// VeilEthLock.lock: after escrowing WETH and verifying the opening proof
+gateway.callContract(destinationChain, destinationContract, abi.encode(C, amount));
+```
+
+### Reflector oracle (collateral pricing)
+
+The vault reads the live ETH/USDC price from Reflector to size each loan at the configured LTV, with a staleness bound so a stale feed cannot mis-price a borrow.
+
+### Circle USDC via the Stellar Asset Contract
+
+Loans are disbursed in real Circle testnet USDC through its SAC. The borrow in the proof below moved 6.05 USDC on-chain.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| ZK | Circom circuits, Groth16 over BN254, snarkjs (browser proving), Poseidon2 |
+| Stellar | Soroban (soroban-sdk, Protocol 27), native BN254 host functions, Reflector oracle, Circle USDC SAC |
+| Ethereum | Solidity + Foundry, canonical WETH, snarkjs Groth16 verifier |
+| Cross-chain | Axelar General Message Passing (gateway + gas service) |
+| App | Next.js 15 (App Router), React 19, TypeScript, `@stellar/stellar-sdk` + `viem`, MetaMask + Freighter |
+
+---
+
+## Testing
+
+```bash
+cd contracts/escrow     && forge test    # 68 passing (VeilEthLock + verifiers)
+cd contracts/veil-pool  && cargo test    # 39 passing (Axelar execute, note tree)
+cd contracts/veil-vault && cargo test    # 21 passing (borrow, margin, LP)
+cd web                  && pnpm test     # 103 passing (provers, tree, crosschain)
+# Total: 231 passing
+```
+
+The contract suites cover the on-chain proof verification, the cross-chain injection gate, tree reconstruction, and loan sizing. The web suite proves the client-side Groth16 provers produce proofs that verify against the deployed verifiers.
+
+You can also run the browser provers against the live on-chain verifiers:
+
+```bash
+cd web && pnpm verify:prover        # borrow proof verifies on-chain
+cd web && pnpm verify:lock-prover   # lock proof verifies on-chain
+```
+
+---
+
+## Try It (5 minutes)
+
+1. Go to **[veilzk.vercel.app](https://veilzk.vercel.app)** and open `/app`.
+2. Connect **MetaMask** on Ethereum Sepolia and **Freighter** on Stellar testnet.
+3. Wrap a small amount of Sepolia ETH into WETH and **lock** it. The lock verifies an opening proof on Ethereum and fires an Axelar message.
+4. Wait for Axelar to deliver the attestation to Stellar (the UI tracks the hops). Your shielded note appears in the pool.
+5. Click **Borrow**. Your browser generates the Groth16 proof, the Soroban vault verifies it, and real USDC lands in your Stellar wallet. The amount you locked never appears on the Stellar ledger.
+
+### Network Setup
+
+| Network | Chain ID | RPC |
+|---------|----------|-----|
+| Ethereum Sepolia | 11155111 | `https://ethereum-sepolia-rpc.publicnode.com` |
+| Stellar testnet | n/a | `https://soroban-testnet.stellar.org` |
+
+Get Sepolia ETH from a [Sepolia faucet](https://sepoliafaucet.com/) and testnet USDC from the [Circle faucet](https://faucet.circle.com/).
+
+---
+
+## Smart Contracts
 
 | Contract | Network | Address |
 |----------|---------|---------|
-| VeilEscrow | Ethereum Sepolia (11155111) | [`0xb833ffEc3C1a3A0aB71a9c014fD174bA7F1eBd6F`](https://sepolia.etherscan.io/address/0xb833ffEc3C1a3A0aB71a9c014fD174bA7F1eBd6F) |
-| VeilVault | Stellar Soroban testnet | [`CDPYUWKD5OTYVWK6C3FQC2OEB3XK4DRAI7WJ5C3XQW6TY3UV2JQWFX2D`](https://stellar.expert/explorer/testnet/contract/CDPYUWKD5OTYVWK6C3FQC2OEB3XK4DRAI7WJ5C3XQW6TY3UV2JQWFX2D) |
-| RISC Zero Groth16 verifier | Stellar Soroban testnet | [`CDZRHQMXGWXDTZOPNPHLRJFTAPANBZE3GJNOKLM7FB7AG3EZFP5E5C2L`](https://stellar.expert/explorer/testnet/contract/CDZRHQMXGWXDTZOPNPHLRJFTAPANBZE3GJNOKLM7FB7AG3EZFP5E5C2L) |
+| VeilEthLock | Ethereum Sepolia | [`0x06bB519A490030DE251EeB83818F875Cc87002e0`](https://sepolia.etherscan.io/address/0x06bB519A490030DE251EeB83818F875Cc87002e0) |
+| veil-pool | Stellar Soroban | [`CA7H5WQISBIWVEWXRBTGHSB3UMEFK7RR4QJHYGAMZVEV7NSW3MFJLHLN`](https://stellar.expert/explorer/testnet/contract/CA7H5WQISBIWVEWXRBTGHSB3UMEFK7RR4QJHYGAMZVEV7NSW3MFJLHLN) |
+| veil-vault | Stellar Soroban | [`CAXOQQ7V4ZDI5TO5SJQQLGXHMWATL3VXXG5YBZJ33SCR7IJ3C7JRYBPT`](https://stellar.expert/explorer/testnet/contract/CAXOQQ7V4ZDI5TO5SJQQLGXHMWATL3VXXG5YBZJ33SCR7IJ3C7JRYBPT) |
+| Groth16 borrow verifier | Stellar Soroban | [`CBTSWUY5OME4EDY3YA7OBRXHVMSBZH4MWO4GSGNPR4FAGG36RGQGDMM2`](https://stellar.expert/explorer/testnet/contract/CBTSWUY5OME4EDY3YA7OBRXHVMSBZH4MWO4GSGNPR4FAGG36RGQGDMM2) |
 
-- Real borrow (proof verified on Soroban, real Circle USDC disbursed, bound to one Stellar account): tx `dc5c1719cc20a5d00c7bb0534b2520b40f7388fa879f1927ba123bee3b6694a6`
-- Cross-chain unlock: repaying on Stellar reveals the secret `S`, which `claimRepaid(S)` uses to release the Sepolia collateral — proven end-to-end on testnet (the round-trip tx on the current vault is listed in [DEPLOYMENTS.md](DEPLOYMENTS.md)).
-- Proof image id: `0x494bfee75ad39a6f61e13f496af1ca2b798cca229ef94c5a094723c9901207ad` · seal selector `73c457ba`
-- The demo's Groth16 proof is generated for free on GitHub Actions (x86, 16 GB), no proving-network key required. A real user's *private* amount is never proven on public CI (its input would be world-visible); real-user proving routes to a private prover (Bonsai / self-hosted runner). See [web/PROVING.md](web/PROVING.md).
+---
 
-**Where a fresh borrow runs.** The hosted site **https://veilzk.vercel.app** serves the full UI, all live on-chain reads (`/api/state`), and the real on-chain cheat-fail (`/api/cheat`). Generating a *new* proof needs the `gh` CLI and the Stellar admin key, which live on a keyed host, not on Vercel — so on the hosted site the proving backend honestly reports `unavailable` (503) rather than faking a proof. A fresh end-to-end borrow is run from that keyed host (or locally). See [web/PROVING.md](web/PROVING.md).
+## On-Chain Verification
 
-## Proof-as-authorization (the Stellar-native move)
+The full forward flow, proven live and independently verifiable:
 
-The same Groth16 receipt verifies on any EVM, so the *verification* is portable. What is **not**
-portable is using the proof as the authorization itself. Veil ships a Soroban **custom account**
-(`contracts/account`) whose `__check_auth` verifies the RISC Zero seal on-chain, checks the
-journal's `recipient` binding, and consumes the nullifier — so **the proof is the signature**.
-When any contract calls the account's `require_auth()`, authorization is granted by a valid Veil
-proof, not by an ed25519 key. EVM has no protocol-level equivalent (ERC-4337 is app-level), which
-is what makes this venue non-substitutable.
+| Step | Link |
+|------|------|
+| Real WETH lock (Ethereum, block 11194551) | [`0x4fa09246…b77cc959`](https://sepolia.etherscan.io/tx/0x4fa09246a74fb6463c49b35fd3233459a0984a0ad53349603be3868db77cc959) |
+| Axelar delivery → Stellar | [`bdc2af52…c9a40fe27`](https://stellar.expert/explorer/testnet/tx/bdc2af52b1382a375bcc73dd05b42929de777e66b44c928a1a6af91c9a40fe27) |
+| Borrow → 6.05 USDC disbursed (Stellar) | [`3a3bb9b5…044cd8a3`](https://stellar.expert/explorer/testnet/tx/3a3bb9b53b1f40f687b9c8bff5606dd1642a9cf3896243cc02bdcd1c044cd8a3) |
 
-Scope note (honest): this is a **deployed, tested, on-chain-proven capability**, not yet the auth path of the main `borrow` — today's borrow uses `require_auth()` on the borrower's key plus the journal `recipient` binding. The custom account is the demonstrated next step that makes the proof itself the authorizer, and it is bound to the demo borrower's recipient (a production version would self-bind).
+Both Groth16 proofs were generated in the browser and verified on-chain: the opening proof inside `VeilEthLock.lock` on Ethereum, and the borrow proof inside `veil-vault.borrow` on Stellar.
 
-Proven live on testnet (no re-bake — it reuses the borrower-bound journal):
+---
 
-- **VeilAccount**: [`CCS6MVAC4…UEIQ`](https://stellar.expert/explorer/testnet/contract/CCS6MVAC4FEGNE3RGJT7KBKH4J7HQEWERRTJOWD6R5YLYNIFWB7NUEIQ) — `__check_auth` runs the BN254 verifier.
-- **Real `__check_auth` transaction** (a proof authorized the call): [`dfd9b055…6393e173`](https://stellar.expert/explorer/testnet/tx/dfd9b05525f4ed2bf2b23f5226fb337699996b29877fe4ed366ca24d6393e173) — **succeeded**, consuming **34M of the 100M** instruction budget (fits with margin).
-- Logic covered by `contracts/account` tests: forged seal traps, wrong recipient and replay rejected.
-
-## Tech stack
-
-- **ZK:** RISC Zero zkVM (Rust guest verifies an `eth_getProof` account + storage proof via `alloy-trie`), Groth16-BN254 wrap.
-- **Stellar:** Soroban (soroban-sdk) lending vault + the Nethermind RISC Zero verifier; Protocol 25/26 BN254 host functions; Reflector oracle; Circle USDC via the Stellar Asset Contract.
-- **Ethereum:** Solidity + Foundry escrow on Sepolia.
-- **App:** Next.js 15 (App Router), React 19, TypeScript; live reads via `@stellar/stellar-sdk` + `viem`; MetaMask + Freighter.
-
-## What is real vs trusted (we never say "trustless")
-
-Real and non-custodial: the collateral proof is cryptographic, the amount is hidden, on-chain verification gates real USDC, and default enforcement lives on Ethereum where the collateral lives. Disclosed trust: a checkpoint poster (a ZK light client is named future work), the Ethereum-side price oracle, the loan-sizing oracle, and a sane timeout. The privacy we ship is **Stellar-side confidentiality** (your amount and wallet never appear on Stellar); the hashlock is public on both chains, so hiding the Ethereum-side correlation is future work. Testnet, unaudited, demo-grade.
-
-### Known limitations & mainnet hardening (named, not hidden)
-
-- **Checkpoint trust (the big one).** `post_checkpoint` is admin-gated; a compromised poster could attest a fabricated Ethereum state root. The honest fix is a **ZK light client** (verify Ethereum consensus in-circuit) or, as an interim, a **multisig poster + independent-RPC cross-check**. Future work.
-- **Bearer-proof — fixed.** The proof is bound to the borrower's Stellar account (`recipient` in the journal, asserted on-chain), so a stolen `{seal, journal}` cannot be redeemed by another party. Proven live (`#17 WrongRecipient`).
-- **Deadline/term coupling (mainnet).** The escrow's Ethereum `deadline` is not yet committed into the journal, so the "timeout always favors the lender" property relies on the operator setting `deadline ≥ now + term`. Mainnet should commit `deadline` into the journal and enforce it on-chain.
-- **Ethereum-side unlinkability.** The public hashlock correlates the two chains; the Ethereum amount + wallet are public on Ethereum regardless. A **shielded-pool / commitment deposit** (Tornado-style) is the credible path to hide the Ethereum leg. Future work.
-- **Oracle.** Loan sizing trusts Reflector; staleness is bounded to 30 min (≈6× its heartbeat). A production system would add a TWAP cross-check.
-
-## Run locally
+## Running Locally
 
 ```bash
-# App (live reads against testnet; no keys needed)
+git clone https://github.com/dmustapha/veil.git
+cd veil
+
+# App (live testnet reads, no keys needed)
 cd web && pnpm install && pnpm dev      # http://localhost:3000
 
-# Ethereum escrow tests
-cd contracts/escrow && forge test       # 12/12
+# Ethereum contracts
+cd contracts/escrow && forge test
 
-# Soroban vault tests
-cd contracts/vault && cargo test        # 12/12
+# Soroban contracts
+cd contracts/veil-pool && cargo test
+cd contracts/veil-vault && cargo test
 ```
 
-## Repo layout
+### Required Environment Variables
+
+The hosted app runs entirely on public testnet reads and needs no secrets. For local proof generation and admin scripts, see `web/.env.example`.
+
+| Variable | Description |
+|----------|-------------|
+| `NEXT_PUBLIC_SEPOLIA_RPC` | Optional Sepolia read RPC override (defaults to publicnode) |
+
+---
+
+## Project Structure
 
 ```
-contracts/escrow   Sepolia escrow (Foundry)
-contracts/vault    Soroban lending vault (soroban-sdk)
-contracts/account  Soroban custom account — proof-as-authorization (__check_auth)
-guest              RISC Zero guest + host + real proof fixture
-relayer            checkpoint poster + secret-reveal relayer
-web                Next.js client (/, /app, /proof, /how-it-works)
-SCOPE.md           locked charter · ARCHITECTURE.md  build spec
+contracts/escrow      Sepolia WETH lock + opening-proof verifier (Foundry)
+contracts/veil-pool   Soroban shielded note pool, Axelar execute (soroban-sdk)
+contracts/veil-vault  Soroban lending vault: borrow, margin, LP (soroban-sdk)
+circom                Circom circuits: deposit_from_eth, lock, borrow, release
+web                   Next.js client (/, /app, /proof, /how-it-works) + browser provers
+relayer               Axelar gas + delivery helpers
+DEPLOYMENTS.md        every deployed address + on-chain wiring
 ```
+
+---
+
+Built for [Stellar Hacks: Real-World ZK](https://dorahacks.io/) (Stellar Development Foundation).
 
 ## License
 

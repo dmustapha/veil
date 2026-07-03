@@ -96,23 +96,23 @@ describe("pathForCommitment", () => {
 describe("decodeLeafEvent", () => {
   const C = 0x01c209ef09acd7a181e181b9f7e89cb7d50f20aed95345d061c9929a8398e10dn;
 
-  it("decodes Deposit (SDK-27 shape: name topic + index topic + map{commitment})", () => {
+  it("decodes deposit (SDK-27 shape: snake_case name topic + index topic + map{commitment})", () => {
     const data = mapOf([["commitment", u256(C)]]);
-    expect(decodeLeafEvent([sym("Deposit"), u32(7)], data)).toEqual({ index: 7, commitment: C });
+    expect(decodeLeafEvent([sym("deposit"), u32(7)], data)).toEqual({ index: 7, commitment: C });
   });
 
   it("also decodes a bare-U256 data body (defensive fallback)", () => {
-    expect(decodeLeafEvent([sym("Deposit"), u32(7)], u256(C))).toEqual({ index: 7, commitment: C });
+    expect(decodeLeafEvent([sym("deposit"), u32(7)], u256(C))).toEqual({ index: 7, commitment: C });
   });
 
-  it("decodes AttestLock (index topic + map with amount+commitment)", () => {
+  it("decodes attest_lock (index topic + map with amount+commitment)", () => {
     const data = mapOf([["amount", i128(10_000_000_000_000_000n)], ["commitment", u256(C)]]);
-    expect(decodeLeafEvent([sym("AttestLock"), u32(5)], data)).toEqual({ index: 5, commitment: C });
+    expect(decodeLeafEvent([sym("attest_lock"), u32(5)], data)).toEqual({ index: 5, commitment: C });
   });
 
-  it("decodes Spent (nullifier topic ignored; index+commitment from map)", () => {
+  it("decodes spent (nullifier topic ignored; index+commitment from map)", () => {
     const data = mapOf([["commitment", u256(C)], ["index", u32(9)]]);
-    expect(decodeLeafEvent([sym("Spent"), u256(0xdeadbeefn)], data)).toEqual({ index: 9, commitment: C });
+    expect(decodeLeafEvent([sym("spent"), u256(0xdeadbeefn)], data)).toEqual({ index: 9, commitment: C });
   });
 
   it("returns null for a non-leaf event", () => {

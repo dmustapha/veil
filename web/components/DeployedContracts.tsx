@@ -7,6 +7,7 @@ const ROWS = [
   DEPLOYED.vault,
   DEPLOYED.verifier,
   DEPLOYED.lockTx,
+  DEPLOYED.attestTx,
   DEPLOYED.borrowTx,
 ];
 

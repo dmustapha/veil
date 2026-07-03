@@ -20,11 +20,11 @@ export const POSITION = {
   lendingChain: "Stellar (Soroban)",
   thresholdEth: "0.005 ETH",
   thresholdWei: "5e15 wei",
-  reflectorPrice: "$1,575.61",
+  reflectorPrice: "$1,740",
   ltv: "70%",
-  loanUsdc: 1.19,
-  balanceStart: 0.04,
-  balanceEnd: 1.23,
+  loanUsdc: 6.05,
+  balanceStart: 0.0,
+  balanceEnd: 6.05,
 } as const;
 
 export const PROOF = {
@@ -59,22 +59,22 @@ export const DEPLOYED = {
   ethLock: {
     label: "Sepolia WETH lock",
     chain: "eth" as const,
-    addr: "0xE114C79D44Fe888FB2dbF962A29023771Ef3B1D2",
-    href: SEPOLIA_ADDR("0xE114C79D44Fe888FB2dbF962A29023771Ef3B1D2"),
+    addr: "0x06bB519A490030DE251EeB83818F875Cc87002e0",
+    href: SEPOLIA_ADDR("0x06bB519A490030DE251EeB83818F875Cc87002e0"),
     explorer: "Etherscan",
   },
   pool: {
     label: "Soroban pool",
     chain: "xlm" as const,
-    addr: "CDIHDUDQIODLZOJAOCZA7DFIHYSX4C37N42RRFWQRC6NN6P7V6263WTB",
-    href: EXPERT_CONTRACT("CDIHDUDQIODLZOJAOCZA7DFIHYSX4C37N42RRFWQRC6NN6P7V6263WTB"),
+    addr: "CA7H5WQISBIWVEWXRBTGHSB3UMEFK7RR4QJHYGAMZVEV7NSW3MFJLHLN",
+    href: EXPERT_CONTRACT("CA7H5WQISBIWVEWXRBTGHSB3UMEFK7RR4QJHYGAMZVEV7NSW3MFJLHLN"),
     explorer: "Stellar Expert",
   },
   vault: {
     label: "Soroban vault",
     chain: "xlm" as const,
-    addr: "CCXGKWB5BQFPIJFARYYIB4FBQPLHGFBVANWHFODMQDRHPF2E3K6DCNKF",
-    href: EXPERT_CONTRACT("CCXGKWB5BQFPIJFARYYIB4FBQPLHGFBVANWHFODMQDRHPF2E3K6DCNKF"),
+    addr: "CAXOQQ7V4ZDI5TO5SJQQLGXHMWATL3VXXG5YBZJ33SCR7IJ3C7JRYBPT",
+    href: EXPERT_CONTRACT("CAXOQQ7V4ZDI5TO5SJQQLGXHMWATL3VXXG5YBZJ33SCR7IJ3C7JRYBPT"),
     explorer: "Stellar Expert",
   },
   verifier: {
@@ -87,15 +87,22 @@ export const DEPLOYED = {
   lockTx: {
     label: "Real WETH lock (Ethereum)",
     chain: "eth" as const,
-    addr: "0x69032063…d84d7f9",
-    href: SEPOLIA_TX("0x6903206311608c7d73396c533bab95da1a35f8692f140db9f1105d562d84d7f9"),
+    addr: "0x4fa09246…b77cc959",
+    href: SEPOLIA_TX("0x4fa09246a74fb6463c49b35fd3233459a0984a0ad53349603be3868db77cc959"),
     explorer: "Etherscan",
   },
-  borrowTx: {
-    label: "Borrow → 1.19 USDC (Stellar)",
+  attestTx: {
+    label: "Axelar delivery → Stellar",
     chain: "xlm" as const,
-    addr: "61dafbc3…d51912b",
-    href: EXPERT_TX("61dafbc30c168b3254f32c864e55a37569c3d60762df0c2170ca8e0e8d51912b"),
+    addr: "bdc2af52…c9a40fe27",
+    href: EXPERT_TX("bdc2af52b1382a375bcc73dd05b42929de777e66b44c928a1a6af91c9a40fe27"),
+    explorer: "Stellar Expert",
+  },
+  borrowTx: {
+    label: "Borrow → 6.05 USDC (Stellar)",
+    chain: "xlm" as const,
+    addr: "3a3bb9b5…044cd8a3",
+    href: EXPERT_TX("3a3bb9b53b1f40f687b9c8bff5606dd1642a9cf3896243cc02bdcd1c044cd8a3"),
     explorer: "Stellar Expert",
   },
 } as const;

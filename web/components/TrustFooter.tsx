@@ -8,11 +8,11 @@ export function TrustFooter() {
           <div className="th-icon" aria-hidden="true">
             <ShieldIcon />
           </div>
-          <div className="trust-title">Honest about trust</div>
+          <div className="trust-title">The trust model</div>
         </div>
         <div className="trust-cols">
           <div className="trust-col trusted">
-            <h4>What is still trusted (not trustless)</h4>
+            <h4>What Veil relies on</h4>
             <div className="trust-item">
               <span className="ti-mark">
                 <InfoIcon />
@@ -49,7 +49,7 @@ export function TrustFooter() {
             </div>
           </div>
           <div className="trust-col ship">
-            <h4>What Veil actually ships</h4>
+            <h4>What Veil guarantees</h4>
             <div className="trust-item">
               <span className="ti-mark">
                 <CheckIcon />

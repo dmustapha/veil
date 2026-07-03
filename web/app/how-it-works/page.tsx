@@ -438,10 +438,11 @@ export default function HowItWorksPage() {
           <section className={`${s.band} wrap`}>
             <div className={`${s.hardHead} reveal`}>
               <span className={s.idx}>[ 01 ]</span>
-              <h2 className={s.hardTitle}>What you actually trust</h2>
+              <h2 className={s.hardTitle}>The trust model, in full</h2>
               <p className={s.hardLead}>
-                Veil is not trustless, and pretending otherwise would be dishonest.
-                Here is the full list, named on purpose.
+                Every trust boundary is named on purpose. The proof is
+                cryptographic; these are the components around it, each doing
+                exactly one job.
               </p>
             </div>
 
