@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Trash2 } from "lucide-react";
 import { useWallets } from "./WalletContext";
 import { StepList, Notice } from "./ui";
 import { OPEN_STEPS, runOpenPipeline, type OpenStepKey } from "@/lib/app/pipeline";
-import type { VeilNote } from "@/lib/app/notes";
+import { removeNote, type VeilNote } from "@/lib/app/notes";
 
 const OPEN_INDEX = new Map(OPEN_STEPS.map((s, i) => [s.key, i] as const));
 
@@ -20,6 +20,11 @@ export function ContinueOpen({ note, onChanged }: { note: VeilNote; onChanged: (
   const [error, setError] = useState("");
   const [step, setStep] = useState<OpenStepKey | null>(null);
   const [detail, setDetail] = useState("");
+
+  // A `created` note never got on-chain — it's an unfinished draft (the lock failed or was interrupted
+  // before broadcast), NOT an in-flight attestation. `locked-eth` means the WETH lock is confirmed and
+  // only Axelar's cross-chain delivery is pending. The two states get honest, distinct framing.
+  const locked = note.status === "locked-eth";
 
   const completed = useMemo(() => {
     const i = step ? OPEN_INDEX.get(step) ?? 0 : 0;
@@ -48,11 +53,18 @@ export function ContinueOpen({ note, onChanged }: { note: VeilNote; onChanged: (
     }
   };
 
+  const discard = async () => {
+    if (busy) return;
+    await removeNote(note.commitmentAvailable);
+    onChanged();
+  };
+
   return (
     <div className="borrow-flow">
       <p className="help">
-        This note is still being attested across chains. It becomes borrowable once Axelar delivers the
-        lock to Stellar.
+        {locked
+          ? "This note is still being attested across chains. It becomes borrowable once Axelar delivers the lock to Stellar."
+          : "This position isn’t locked yet — the Ethereum lock didn’t finish. Resume to lock your collateral, or discard this draft."}
       </p>
       {busy && (
         <StepList
@@ -71,9 +83,22 @@ export function ContinueOpen({ note, onChanged }: { note: VeilNote; onChanged: (
       )}
       {error && <Notice tone="error">{error}</Notice>}
       {!busy && (
-        <button className="btn btn-ghost" type="button" onClick={resume}>
-          Continue attestation <ArrowRight aria-hidden="true" />
-        </button>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button className="btn btn-ghost" type="button" onClick={resume}>
+            {locked ? "Continue attestation" : "Resume — lock collateral"}{" "}
+            <ArrowRight aria-hidden="true" />
+          </button>
+          {!locked && (
+            <button
+              className="btn btn-ghost"
+              type="button"
+              onClick={discard}
+              aria-label="Discard this unfinished draft position"
+            >
+              <Trash2 aria-hidden="true" /> Discard
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

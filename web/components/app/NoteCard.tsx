@@ -39,11 +39,15 @@ export function NoteCard({ note, onChanged }: { note: VeilNote; onChanged: () =>
           <span className={`pos-pill ${note.status}`}>{PILL[note.status]}</span>
         </div>
 
-        <FrostedVeil />
+        <FrostedVeil sealed={note.status !== "created"} />
 
         <div className="pos-facts">
           <Fact k="Your collateral" v={`${formatEther(BigInt(note.amount))} ETH`} />
-          <Fact k="Proven to Stellar" v="Threshold cleared" />
+          {note.status === "created" ? (
+            <Fact k="Status" v="Not locked yet" />
+          ) : (
+            <Fact k="Proven to Stellar" v="Threshold cleared" />
+          )}
           <Fact k="Collateral chain" v={POSITION.collateralChain} />
           <Fact k="Lending chain" v={POSITION.lendingChain} />
           {note.lockTxEth && (

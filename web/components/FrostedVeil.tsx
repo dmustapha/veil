@@ -6,14 +6,14 @@ import styles from "./FrostedVeil.module.css";
  * real frosted glass and is NEVER rendered: only redaction blocks and the
  * fact that it clears the required threshold are ever shown. Privacy invariant.
  */
-export function FrostedVeil({ className }: { className?: string }) {
+export function FrostedVeil({ className, sealed = true }: { className?: string; sealed?: boolean }) {
   return (
     <div className={`${styles.veil}${className ? ` ${className}` : ""}`}>
       <div className={styles.label}>
-        <span>Collateral locked</span>
+        <span>{sealed ? "Collateral locked" : "Collateral pending"}</span>
         <span className={styles.lock}>
           <Lock aria-hidden="true" />
-          Sealed
+          {sealed ? "Sealed" : "Not locked"}
         </span>
       </div>
       <div className={styles.stage}>
@@ -32,8 +32,17 @@ export function FrostedVeil({ className }: { className?: string }) {
         </div>
       </div>
       <p className={styles.foot}>
-        We prove it <b>clears the threshold</b>{" "}
-        <span className={styles.sub}>(amount stays hidden)</span>
+        {sealed ? (
+          <>
+            We prove it <b>clears the threshold</b>{" "}
+            <span className={styles.sub}>(amount stays hidden)</span>
+          </>
+        ) : (
+          <>
+            Lock on Ethereum to <b>seal this position</b>{" "}
+            <span className={styles.sub}>(nothing on-chain yet)</span>
+          </>
+        )}
       </p>
     </div>
   );

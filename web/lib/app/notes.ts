@@ -243,6 +243,14 @@ export async function saveNote(note: VeilNote): Promise<VeilNote[]> {
   return next;
 }
 
+/** Delete the note with the given AVAILABLE commitment — e.g. discard an unlocked draft that never
+ *  made it on-chain. Safe: only device-local secrets are dropped; nothing was ever committed. */
+export async function removeNote(commitmentAvailable: string): Promise<VeilNote[]> {
+  const next = (await loadNotes()).filter((n) => n.commitmentAvailable !== commitmentAvailable);
+  await persist(next);
+  return next;
+}
+
 /** Merge a lifecycle patch into the note with the given AVAILABLE commitment. */
 export async function updateNote(commitmentAvailable: string, patch: Partial<VeilNote>): Promise<VeilNote[]> {
   const next = (await loadNotes()).map((n) =>
