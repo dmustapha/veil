@@ -20,21 +20,60 @@ import {
   requestAccess,
   signTransaction,
 } from "@stellar/freighter-api";
-import { SOROBAN_RPC, TESTNET_PASSPHRASE, USDC_DECIMALS, USDC_SAC, VAULT } from "@/lib/onchain";
+import {
+  SOROBAN_RPC, TESTNET_PASSPHRASE, USDC_DECIMALS, USDC_SAC, VEIL_POOL, VEIL_VAULT,
+} from "@/lib/onchain";
+import { toSorobanProof, type SnarkProof } from "@/lib/prove/groth16";
+import { P } from "@/lib/prove/poseidon2";
+import { fetchLeafEvents, type LeafEvent } from "@/lib/prove/tree";
 
 const server = () => new rpc.Server(SOROBAN_RPC);
 
-const hexToBytes = (hex: string) => {
-  const clean = hex.replace(/^0x/, "");
-  const out = new Uint8Array(clean.length / 2);
-  for (let i = 0; i < out.length; i++) {
-    out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
-  }
-  return out;
-};
+/**
+ * Page every leaf-insertion event the live pool has emitted, so the client can rebuild the note tree
+ * on-device. The RPC only retains ~7 days of events, so we scan from a window before `latest` (well
+ * inside retention, and past any real note's insertion in a live run).
+ */
+export async function poolLeafEvents(): Promise<LeafEvent[]> {
+  const srv = server();
+  const latest = (await srv.getLatestLedger()).sequence;
+  const startLedger = Math.max(1, latest - 100_000);
+  return fetchLeafEvents(srv, VEIL_POOL, startLedger);
+}
 
-const bytesVal = (hex: string) => nativeToScVal(hexToBytes(hex));
 const addrVal = (a: string) => nativeToScVal(a, { type: "address" });
+const strVal = (s: string) => nativeToScVal(s, { type: "string" });
+const u256Val = (v: bigint) => nativeToScVal(v, { type: "u256" });
+
+/** A field element as a 32-byte big-endian buffer (matches Solidity `abi.encode(uint256)`). */
+function be32(v: bigint): Uint8Array {
+  const out = new Uint8Array(32);
+  for (let i = 31; i >= 0; i--) { out[i] = Number(v & 0xffn); v >>= 8n; }
+  if (v !== 0n) throw new Error("value exceeds 32 bytes");
+  return out;
+}
+
+/** The Axelar payload VeilEthLock emits: `abi.encode(C, amount)` = 32-byte C ‖ 32-byte amount.
+ *  Guards the field ranges so a non-canonical commitment (≥ the BN254 modulus — a distinct pool key)
+ *  or an over-u128 amount can never be silently encoded into a message the pool would then insert. */
+export function executePayload(C: bigint, amount: bigint): Uint8Array {
+  if (C < 0n || C >= P) throw new Error("commitment is not a canonical BN254 field element");
+  if (amount <= 0n || amount >= 1n << 128n) throw new Error("amount must be in (0, 2^128)");
+  const p = new Uint8Array(64);
+  p.set(be32(C), 0);
+  p.set(be32(amount), 32);
+  return p;
+}
+
+/** Encode a snarkjs proof as the contract's `Groth16Proof` struct (map {a,b,c: Bytes}). */
+function proofScVal(proof: SnarkProof): xdr.ScVal {
+  const sp = toSorobanProof(proof);
+  return xdr.ScVal.scvMap([
+    new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol("a"), val: nativeToScVal(sp.a) }),
+    new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol("b"), val: nativeToScVal(sp.b) }),
+    new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol("c"), val: nativeToScVal(sp.c) }),
+  ]);
+}
 
 /** Connect Freighter and assert the wallet is on Stellar testnet. */
 export async function connectFreighter(): Promise<{
@@ -107,32 +146,82 @@ async function pollResult(srv: rpc.Server, hash: string): Promise<string> {
   return hash;
 }
 
-/** Atomic verify-and-disburse on the vault. The proof gates real USDC. */
-export function borrow(
-  seal: string,
-  journal: string,
-  borrower: string
+/**
+ * Insert the Axelar-attested AVAILABLE note into the pool. `veil-pool.execute` authenticates the
+ * message against the Soroban Axelar gateway (no trusted relayer) and inserts `C`. `messageId` +
+ * `sourceAddress` come from the Axelar GMP API (lib/app/axelar.ts); `payload = abi.encode(C, amount)`.
+ */
+export function execute(
+  sourceChain: string,
+  messageId: string,
+  sourceAddress: string,
+  C: bigint,
+  amount: bigint,
+  source: string,
 ): Promise<string> {
+  const payload = nativeToScVal(executePayload(C, amount));
   return invoke(
-    VAULT,
-    "borrow",
-    [bytesVal(seal), bytesVal(journal), addrVal(borrower)],
-    borrower
+    VEIL_POOL,
+    "execute",
+    [strVal(sourceChain), strVal(messageId), strVal(sourceAddress), payload],
+    source,
   );
 }
 
-/** Repay the principal and reveal S so a relay can unlock the Ethereum collateral. */
-export function repay(
-  hashlock: string,
-  secret: string,
-  borrower: string
+/**
+ * Spend the AVAILABLE note and mint the LOCKED note. The client Groth16 lock proof gates it; the pool
+ * burns `nullifier`, inserts `commitment`, and returns the LOCKED leaf index. Public signals order:
+ * [nullifierOut, commitmentOut, root, lockId].
+ */
+export function lockNote(
+  proof: SnarkProof,
+  nullifier: bigint,
+  commitment: bigint,
+  root: bigint,
+  lockId: bigint,
+  source: string,
 ): Promise<string> {
   return invoke(
-    VAULT,
-    "repay",
-    [bytesVal(hashlock), bytesVal(secret)],
-    borrower
+    VEIL_POOL,
+    "lock",
+    [proofScVal(proof), u256Val(nullifier), u256Val(commitment), u256Val(root), u256Val(lockId)],
+    source,
   );
+}
+
+/**
+ * Prove membership of the LOCKED note above a hidden threshold and disburse real USDC. The client
+ * Groth16 borrow proof gates it (fail-closed); `borrower` binds the proof to the caller (anti-replay).
+ * Public signals order: [positionId, lockHandle, root, threshold, borrower].
+ */
+export function borrow(
+  proof: SnarkProof,
+  positionId: bigint,
+  lockHandle: bigint,
+  root: bigint,
+  threshold: bigint,
+  borrower: string,
+): Promise<string> {
+  return invoke(
+    VEIL_VAULT,
+    "borrow",
+    [proofScVal(proof), u256Val(positionId), u256Val(lockHandle), u256Val(root), nativeToScVal(threshold, { type: "u128" }), addrVal(borrower)],
+    borrower,
+  );
+}
+
+/**
+ * Parse a decimal token amount into integer base units WITHOUT floating point (money must be exact).
+ * Rejects malformed input and more fractional digits than the token supports.
+ */
+export function toBaseUnits(amount: string, decimals: number): bigint {
+  const s = amount.trim();
+  if (!/^\d+(\.\d+)?$/.test(s)) throw new Error("invalid amount");
+  const [whole, frac = ""] = s.split(".");
+  if (frac.length > decimals) throw new Error(`at most ${decimals} decimal places`);
+  const units = BigInt(whole) * 10n ** BigInt(decimals) + BigInt((frac + "0".repeat(decimals)).slice(0, decimals) || "0");
+  if (units <= 0n) throw new Error("amount must be positive");
+  return units;
 }
 
 /** Send Circle USDC (the SAC) to another Stellar address. Proves the token is real. */
@@ -141,7 +230,7 @@ export function sendUsdc(
   to: string,
   amountUsdc: string
 ): Promise<string> {
-  const units = BigInt(Math.round(parseFloat(amountUsdc) * 10 ** USDC_DECIMALS));
+  const units = toBaseUnits(amountUsdc, USDC_DECIMALS);
   return invoke(
     USDC_SAC,
     "transfer",

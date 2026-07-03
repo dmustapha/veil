@@ -18,3 +18,4 @@ vendor() { # <circuit>: copy the Test(16)-wrapper wasm + ceremony zkey + vkey in
 
 vendor borrow
 vendor lock
+vendor deposit_from_eth

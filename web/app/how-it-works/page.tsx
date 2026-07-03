@@ -3,7 +3,6 @@ import {
   Lock,
   KeyRound,
   BadgeCheck,
-  Unlock,
   ArrowRight,
   ArrowLeft,
   ArrowLeftRight,
@@ -23,11 +22,7 @@ import { Nav } from "@/components/Nav";
 import { SiteFooter } from "@/components/SiteFooter";
 import { FrostedVeil } from "@/components/FrostedVeil";
 import { POSITION, PROOF } from "@/lib/constants";
-import { HASHLOCK } from "@/lib/onchain";
 import s from "./page.module.css";
-
-/** Public hashlock, truncated for display (full value is on-chain on both legs). */
-const HASHLOCK_DISPLAY = `${HASHLOCK.slice(0, 10)}…${HASHLOCK.slice(-8)}`;
 
 export const metadata = {
   title: "How Veil works: private cross-chain borrowing, explained",
@@ -44,9 +39,9 @@ const FLOW = [
     title: "Lock collateral on Ethereum",
     text: (
       <>
-        You deposit crypto into an escrow on Ethereum. It stays there the whole
-        time. <b>Nothing bridges</b>, so you never hand your funds to a wrapper
-        or a custodian.
+        You wrap ETH into WETH and lock it in a Veil contract on Ethereum, bound
+        to a private note. It stays there the whole time. <b>Nothing bridges</b>,
+        so you never hand your funds to a custodian.
       </>
     ),
   },
@@ -58,9 +53,9 @@ const FLOW = [
     title: "Prove it privately",
     text: (
       <>
-        A zero-knowledge proof shows your locked amount clears the bar, without
-        revealing the amount or your wallet. <b>The number stays secret</b>; only
-        the proof travels onward.
+        A zero-knowledge proof, generated <b>in your browser</b>, shows your
+        locked amount clears the bar without revealing the amount or your wallet.
+        The witness never leaves your device; only the proof travels onward.
       </>
     ),
   },
@@ -80,15 +75,16 @@ const FLOW = [
   },
   {
     tone: "soft" as const,
-    Icon: Unlock,
-    chain: "eth" as const,
-    chainLabel: "Ethereum",
-    title: "Repay to unlock, or time out",
+    Icon: Coins,
+    chain: "xlm" as const,
+    chainLabel: "Stellar",
+    title: "Spend your USDC; collateral stays put",
     text: (
       <>
-        Repaying on Stellar reveals a secret that unlocks your Ethereum
-        collateral. <b>If you walk away</b>, a timeout returns the collateral to
-        the lender, enforced where the collateral lives.
+        Your borrowed USDC is real Circle USDC you can use across Stellar. Your
+        WETH stays locked on Ethereum, backing the loan — it never bridges.{" "}
+        <b>Repay-to-unlock and default-to-claim for the real-ETH leg are the next
+        milestone</b>, not yet wired.
       </>
     ),
   },
@@ -129,8 +125,9 @@ const PUBLIC = [
     Icon: FileCheck2,
     text: (
       <>
-        <b>The proof.</b> The 260-byte Groth16 seal that Stellar checks, opening
-        with selector <span className="mono">{PROOF.sealSelector}</span>.
+        <b>The proof.</b> The {PROOF.size} {PROOF.system} proof that Stellar
+        checks on its own, the three curve points{" "}
+        <span className="mono">{PROOF.layout}</span>.
       </>
     ),
   },
@@ -138,9 +135,8 @@ const PUBLIC = [
     Icon: Lock,
     text: (
       <>
-        <b>A hashlock.</b> One public value{" "}
-        <span className="mono">{HASHLOCK_DISPLAY}</span> that ties the Ethereum
-        lock to the Stellar loan.
+        <b>A note commitment.</b> One public value that ties your Ethereum lock
+        to the Stellar loan, revealing nothing about the amount behind it.
       </>
     ),
   },
@@ -149,12 +145,12 @@ const PUBLIC = [
 const TRUST = [
   {
     Icon: Server,
-    name: "The checkpoint poster",
+    name: "Axelar's validator set",
     desc: (
       <>
-        Someone relays Ethereum&apos;s state to Stellar so the proof can be
-        checked against it. Replacing this with a ZK light client is named{" "}
-        <span className="future">future work</span>.
+        The attestation that your ETH is really locked crosses to Stellar over{" "}
+        Axelar&apos;s decentralized validator set, authenticated on-chain by the
+        Axelar gateway. Veil runs <b>no relayer of its own</b>.
       </>
     ),
   },
@@ -163,28 +159,29 @@ const TRUST = [
     name: "The price oracle",
     desc: (
       <>
-        An Ethereum-side price feed decides, on default, whether the collateral
-        is worth enough to liquidate.
+        Reflector, a live oracle on Stellar, supplies the ETH price the vault
+        uses to size your loan and decide liquidation.
       </>
     ),
   },
   {
     Icon: Landmark,
-    name: "The loan-sizing oracle",
+    name: "The one-time pin",
     desc: (
       <>
-        Reflector supplies the ETH price used to size your loan at a
-        conservative borrow limit.
+        An admin pins the pool to the Ethereum lock contract once, after seeing
+        Axelar&apos;s first message. Until then the pool is <b>fail-closed</b>.
       </>
     ),
   },
   {
     Icon: Clock,
-    name: "The timeout",
+    name: "The loan term",
     desc: (
       <>
-        A deadline returns the collateral to the lender if a leg stalls. It is
-        set so the loan term ends before it.
+        The vault carries a loan term and liquidation threshold. Wiring the
+        Ethereum-side reclaim to enforce them is the{" "}
+        <span className="future">next milestone</span>.
       </>
     ),
   },
@@ -193,8 +190,8 @@ const TRUST = [
     name: "Unaudited testnet code",
     desc: (
       <>
-        The verifiers are unaudited and run on test networks. This is
-        demo-grade, not production money.
+        The contracts are unaudited and run on test networks. This is demo-grade,
+        not production money.
       </>
     ),
   },
@@ -203,11 +200,12 @@ const TRUST = [
 const TECH = [
   {
     Icon: Cpu,
-    name: "RISC Zero zkVM",
+    name: "Circom + Groth16",
     val: (
       <>
-        The proof is generated in a zkVM that runs the collateral check as a real
-        program, so the logic is auditable, not hand-rolled.
+        The collateral check is a Circom circuit, proven with Groth16 by snarkjs{" "}
+        <b>in your browser</b> in about a second. The witness never leaves the
+        device.
       </>
     ),
   },
@@ -216,8 +214,8 @@ const TECH = [
     name: "Groth16 on Soroban",
     val: (
       <>
-        A {PROOF.system} proof, verified on-chain by Stellar using Protocol 25
-        and 26 host functions.
+        A {PROOF.system} proof, verified natively on-chain by Stellar using
+        Protocol 27 BN254 host functions.
       </>
     ),
   },
@@ -243,22 +241,21 @@ const TECH = [
   },
   {
     Icon: Lock,
-    name: "Sepolia escrow",
+    name: "Sepolia WETH lock",
     val: (
       <>
-        Your collateral is held by a contract on Ethereum Sepolia, where unlock
-        and default are both enforced.
+        Real WETH is locked in a Veil contract on Ethereum Sepolia, where the
+        deposit opening proof is verified on-chain before anything crosses.
       </>
     ),
   },
   {
     Icon: KeyRound,
-    name: "Proof-as-authorization",
+    name: "Axelar GMP",
     val: (
       <>
-        A Soroban custom account whose <span className="mono">__check_auth</span>{" "}
-        verifies the proof on-chain, so the proof itself is the signature.
-        Native to Stellar; no EVM has this at the protocol level.
+        The (commitment, amount) attestation crosses via Axelar General Message
+        Passing, authenticated by the Soroban gateway — no trusted relayer.
       </>
     ),
   },
@@ -328,7 +325,7 @@ export default function HowItWorksPage() {
               </span>
               <span className={s.lab}>
                 Collateral stays on Ethereum
-                <span className={s.sub}>Locked in escrow, never wrapped</span>
+                <span className={s.sub}>Locked on Ethereum, never bridged</span>
               </span>
             </div>
             <div className={s.bridgeMid} aria-hidden="true">

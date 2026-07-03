@@ -69,6 +69,67 @@ export async function proveLock(
   return { proof: proof as unknown as SnarkProof, publicSignals: publicSignals as string[] };
 }
 
+/** The deposit-from-eth witness — the opening that binds a public note commitment `C` to a public
+ *  `amount`. `spendPk`/`blinding` are the note secrets and never leave the device. Decimal strings. */
+export interface DepositWitness {
+  amount: string;
+  C: string;
+  spendPk: string;
+  blinding: string;
+}
+
+const DEPOSIT_ASSETS: ProverAssets = {
+  wasm: "/circuits/deposit_from_eth/deposit_from_eth.wasm",
+  zkey: "/circuits/deposit_from_eth/deposit_from_eth.zkey",
+};
+
+/**
+ * Prove the deposit-from-eth opening client-side. The resulting proof is verified by `VeilEthLock`
+ * ON ETHEREUM at lock time (a snarkjs-exported Solidity verifier), so the WETH escrowed provably
+ * matches the note commitment the user will later spend on Stellar. `publicSignals` order: [amount, C].
+ */
+export async function proveDepositFromEth(
+  witness: DepositWitness,
+  assets: ProverAssets = DEPOSIT_ASSETS,
+): Promise<BorrowProof> {
+  const snarkjs = await import("snarkjs");
+  const input = witness as unknown as Record<string, string | string[]>;
+  const { proof, publicSignals } = await snarkjs.groth16.fullProve(input, assets.wasm, assets.zkey);
+  return { proof: proof as unknown as SnarkProof, publicSignals: publicSignals as string[] };
+}
+
+/**
+ * A Groth16 proof in the calldata shape a snarkjs-generated Solidity verifier expects:
+ * `verifyProof(pA[2], pB[2][2], pC[2], pubSignals[])`. Note the Fp2 coordinates in `pB` are swapped
+ * (c1 before c0) — the same imaginary-first ordering the EVM `verifyProof` template uses.
+ */
+export interface EvmProof {
+  pA: [bigint, bigint];
+  pB: [[bigint, bigint], [bigint, bigint]];
+  pC: [bigint, bigint];
+}
+
+/** Transcode a snarkjs proof into the EVM `verifyProof` calldata tuples (bigint, call-ready for viem). */
+export function toEvmProof(p: SnarkProof): EvmProof {
+  const b = (v: string) => BigInt(v);
+  return {
+    pA: [b(p.pi_a[0]), b(p.pi_a[1])],
+    pB: [
+      [b(p.pi_b[0][1]), b(p.pi_b[0][0])],
+      [b(p.pi_b[1][1]), b(p.pi_b[1][0])],
+    ],
+    pC: [b(p.pi_c[0]), b(p.pi_c[1])],
+  };
+}
+
+/** The deposit public signals as EVM `verifyProof` `pubSignals` — order [amount, C]. */
+export function depositPubSignals(publicSignals: string[]): [bigint, bigint] {
+  if (publicSignals.length !== 2) {
+    throw new Error(`expected 2 deposit public signals, got ${publicSignals.length}`);
+  }
+  return [BigInt(publicSignals[0]), BigInt(publicSignals[1])];
+}
+
 /** The lock public signals, decoded and named (snarkjs emits outputs first). */
 export interface LockPublicArgs {
   nullifierOut: bigint;

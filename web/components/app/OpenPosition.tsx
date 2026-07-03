@@ -1,51 +1,76 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Lock, ArrowRight } from "lucide-react";
 import { useWallets } from "./WalletContext";
-import { TxLink, Notice } from "./ui";
-import { lockCollateral, newSecret } from "@/lib/app/eth";
-import { addPosition } from "@/lib/app/positions";
-import { ethTxUrl } from "@/lib/app/format";
+import { StepList, Notice } from "./ui";
+import { createNote, saveNote } from "@/lib/app/notes";
+import { OPEN_STEPS, parseCollateral, runOpenPipeline, type OpenStepKey } from "@/lib/app/pipeline";
+import { PUBLIC_THRESHOLD_WEI } from "@/lib/onchain";
 import { POSITION } from "@/lib/constants";
 
-const TERMS = [7, 14, 30];
+/** Index of a step key in the ordered OPEN_STEPS, for computing which steps are already done. */
+const OPEN_INDEX = new Map(OPEN_STEPS.map((s, i) => [s.key, i] as const));
 
 export function OpenPosition({ onCreated }: { onCreated: () => void }) {
-  const { eth } = useWallets();
+  const { eth, xlm } = useWallets();
   const [amount, setAmount] = useState("");
-  const [termDays, setTermDays] = useState(14);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [tx, setTx] = useState("");
+  const [done, setDone] = useState(false);
+  const [step, setStep] = useState<OpenStepKey | null>(null);
+  const [detail, setDetail] = useState("");
 
-  const ready = eth.status === "connected" && eth.address;
+  const ethReady = eth.status === "connected" && !!eth.address;
+  const xlmReady = xlm.status === "connected" && !!xlm.address;
+  const ready = ethReady && xlmReady;
   const validAmount = parseFloat(amount) > 0;
+
+  // Steps already completed = everything before the active step (skipped legs count as done).
+  const completed = useMemo(() => {
+    const i = step ? OPEN_INDEX.get(step) ?? 0 : done ? OPEN_STEPS.length : 0;
+    return new Set(OPEN_STEPS.slice(0, i).map((s) => s.key));
+  }, [step, done]);
 
   const submit = async () => {
     setError("");
-    setTx("");
-    if (!ready || !eth.address) return setError("Connect MetaMask on Sepolia first.");
-    if (!validAmount) return setError("Enter a collateral amount above zero.");
-    setBusy(true);
+    setDone(false);
+    if (!eth.address) return setError("Connect MetaMask on Sepolia first.");
+    if (!xlm.address) return setError("Connect Freighter on Stellar testnet to receive the note.");
+    let wei: bigint;
     try {
-      const { secret, h } = newSecret();
-      const deadline = Math.floor(Date.now() / 1000) + termDays * 86400;
-      const lockTx = await lockCollateral(eth.address, h, deadline, amount.trim());
-      addPosition({
-        h,
-        secret,
-        deadline,
-        termDays,
-        lockTx,
-        createdAt: Date.now(),
-      });
-      setTx(lockTx);
+      wei = parseCollateral(amount);
+    } catch {
+      return setError("Enter a valid ETH amount.");
+    }
+    if (wei < PUBLIC_THRESHOLD_WEI) return setError(`Lock at least ${POSITION.thresholdEth} to clear the threshold.`);
+
+    setBusy(true);
+    setStep(OPEN_STEPS[0].key);
+    try {
+      const note = createNote(wei);
+      await saveNote(note);
+      // Deliberately no reload yet: while this form drives the pipeline it owns the progress UI. The
+      // note surfaces as a card only when we yield — on success, or on interruption (catch) so it can
+      // be resumed there — which also prevents a second, concurrent open run from its card.
+      await runOpenPipeline(
+        note,
+        { ethAccount: eth.address, xlmAddress: xlm.address },
+        (key, d) => {
+          setStep(key);
+          setDetail(d ?? "");
+        },
+      );
+      setStep(null);
+      setDone(true);
       onCreated();
     } catch (e) {
       setError(e instanceof Error ? friendly(e.message) : "Something went wrong.");
+      setStep(null);
+      onCreated(); // surface the partially-opened note as a card so the user can resume it
     } finally {
       setBusy(false);
+      setDetail("");
     }
   };
 
@@ -55,7 +80,7 @@ export function OpenPosition({ onCreated }: { onCreated: () => void }) {
         <div className="card-head">
           <div>
             <div className="card-title">Open a position</div>
-            <div className="card-sub">Lock your own ETH on Sepolia under a private hashlock</div>
+            <div className="card-sub">Lock your own ETH on Sepolia; borrow against it privately on Stellar</div>
           </div>
           <span className="chain-tag">
             <span className="glyph eth" aria-hidden="true" /> Ethereum
@@ -78,29 +103,10 @@ export function OpenPosition({ onCreated }: { onCreated: () => void }) {
               aria-label="Collateral amount in ETH"
             />
             <span className="help">
-              You see this number; the Stellar side never will. It proves only{" "}
-              <b>≥ {POSITION.thresholdEth}</b>, never the exact figure.
+              You see this number; the Stellar side never will. The proof reveals only{" "}
+              <b>≥ {POSITION.thresholdEth}</b>, never the exact figure or your address.
             </span>
           </label>
-
-          <fieldset className="app-field">
-            <legend className="app-label">Loan term</legend>
-            <div className="seg" role="radiogroup" aria-label="Loan term">
-              {TERMS.map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  role="radio"
-                  aria-checked={termDays === d}
-                  className={`seg-btn${termDays === d ? " on" : ""}`}
-                  onClick={() => setTermDays(d)}
-                  disabled={busy}
-                >
-                  {d} days
-                </button>
-              ))}
-            </div>
-          </fieldset>
         </div>
 
         <button
@@ -110,20 +116,22 @@ export function OpenPosition({ onCreated }: { onCreated: () => void }) {
           disabled={busy || !ready || !validAmount}
         >
           {busy ? <span className="spin-lime" aria-hidden="true" /> : <Lock aria-hidden="true" />}
-          {busy ? "Confirm in MetaMask…" : "Lock collateral"}
+          {busy ? "Working…" : "Lock collateral"}
           {!busy && <ArrowRight aria-hidden="true" />}
         </button>
 
+        {busy && <StepList steps={OPEN_STEPS} current={step} done={completed} detail={detail} />}
+
         {!ready && (
           <Notice tone="info">
-            Connect MetaMask on Sepolia to lock collateral. This sends a real
-            transaction with your own test ETH.
+            Connect MetaMask on Sepolia and Freighter on Stellar testnet. This locks real test ETH and
+            attests it across chains with Axelar.
           </Notice>
         )}
         {error && <Notice tone="error">{error}</Notice>}
-        {tx && (
+        {done && (
           <Notice tone="ok">
-            Collateral locked. <TxLink href={ethTxUrl(tx)} label="View on Etherscan" />
+            Note created and attested on Stellar. Find it below to borrow against it.
           </Notice>
         )}
       </div>
@@ -132,8 +140,8 @@ export function OpenPosition({ onCreated }: { onCreated: () => void }) {
 }
 
 function friendly(msg: string): string {
-  if (/user rejected|denied|rejected the request/i.test(msg)) return "You rejected the transaction.";
+  if (/user rejected|denied|rejected the request|Signing was rejected/i.test(msg)) return "You rejected the transaction.";
   if (/insufficient funds/i.test(msg)) return "Not enough Sepolia ETH for this amount plus gas.";
-  if (/AlreadyUsed/i.test(msg)) return "That hashlock was already used. Try again to generate a fresh one.";
-  return msg.length > 160 ? msg.slice(0, 160) + "…" : msg;
+  if (/timed out waiting for Axelar/i.test(msg)) return "Axelar is still confirming — reopen this note shortly to finish.";
+  return msg.length > 180 ? msg.slice(0, 180) + "…" : msg;
 }

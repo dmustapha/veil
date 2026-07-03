@@ -16,7 +16,7 @@ function Hidden() {
 /**
  * "What Stellar sees" — the same loan two ways. Left: what a naive cross-chain loan would have to
  * publish on Stellar (the amount + your Ethereum wallet, public forever). Right: what Veil's proof
- * actually records (only the threshold, hashlock, nullifier, and your Stellar address). This is the
+ * actually records (only the threshold, note commitment, nullifier, and your Stellar address). This is the
  * privacy made legible — shown as a positive artifact, not just absence.
  */
 export function PrivacyLedger() {
@@ -66,7 +66,7 @@ export function PrivacyLedger() {
           </div>
           <div className={styles.row}>
             <span className={styles.k}>Recorded on Stellar</span>
-            <span className={`${styles.v} ${styles.ok}`}>threshold, hashlock, nullifier, proof</span>
+            <span className={`${styles.v} ${styles.ok}`}>threshold, commitment, nullifier, proof</span>
           </div>
         </div>
         <p className={styles.foot}>→ Stellar learns only “they cleared {POSITION.thresholdEth}.” Nothing about how much, or who.</p>

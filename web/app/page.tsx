@@ -4,7 +4,6 @@ import {
   Lock,
   Coins,
   Gauge,
-  Unlock,
   Globe,
   KeyRound,
   ShieldCheck,
@@ -29,18 +28,18 @@ const CAPABILITIES = [
   },
   {
     Icon: Gauge,
-    title: "Track your loan health",
-    help: "Watch your borrow limit and balance update as you go.",
+    title: "Follow every step on-chain",
+    help: "Watch each position move from lock to attestation to borrow, with live testnet transactions.",
   },
   {
-    Icon: Unlock,
-    title: "Repay to unlock",
-    help: "Pay the loan back and release your collateral on Ethereum.",
+    Icon: Lock,
+    title: "Keep custody on Ethereum",
+    help: "Your collateral never bridges — it stays locked on Ethereum the whole time.",
   },
   {
     Icon: Globe,
     title: "Use it anywhere on Stellar",
-    help: "Your borrowed USDC works across the Stellar ecosystem.",
+    help: "Your borrowed USDC is real Circle USDC, usable across the Stellar ecosystem.",
   },
 ];
 
@@ -64,10 +63,10 @@ const STEPS = [
     desc: "Stellar checks the proof and releases the loan to your wallet.",
   },
   {
-    Icon: Unlock,
+    Icon: Coins,
     num: "Step 4",
-    name: "Repay to unlock",
-    desc: "Repay anytime and your collateral unlocks back on Ethereum.",
+    name: "Use your USDC",
+    desc: "Your borrowed USDC is real Circle USDC — send it anywhere on Stellar.",
   },
 ];
 
@@ -121,9 +120,9 @@ export default function LandingPage() {
               </div>
               <SealByteGrid state="locked" />
               <p className={styles.showCap}>
-                A cryptographic seal Stellar checks on its own. It starts{" "}
-                <b>{PROOF.sealSelector}</b>. If it is real, the loan unlocks. If
-                it is faked, nothing moves.
+                A cryptographic proof Stellar checks on its own — {PROOF.size},
+                the points <b>{PROOF.layout}</b>. If it is real, the loan unlocks.
+                If it is faked, nothing moves.
               </p>
             </div>
           </div>
@@ -197,8 +196,9 @@ export default function LandingPage() {
                     Veil is not trustless. We name exactly what you trust.
                   </span>
                   <span className={styles.trustSub}>
-                    A checkpoint poster, a price oracle, and a sane timeout —
-                    on two testnets. Read the honest list before you rely on it.
+                    Axelar&apos;s validator set, a price oracle, and a fixed loan
+                    term — on two testnets. Read the honest list before you rely
+                    on it.
                   </span>
                 </span>
               </div>

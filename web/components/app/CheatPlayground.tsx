@@ -30,7 +30,7 @@ export function CheatPlayground() {
         <div className="card-head">
           <div>
             <div className="card-title">Try a fake proof</div>
-            <div className="card-sub">Tamper with the seal and watch the vault reject it, live</div>
+            <div className="card-sub">Tamper with the proof and watch it shatter — the trap the vault produced on-chain</div>
           </div>
           <span className="chain-tag">
             <span className="glyph xlm" aria-hidden="true" /> Soroban
@@ -38,16 +38,16 @@ export function CheatPlayground() {
         </div>
 
         <p className="help">
-          This flips one byte inside the real 260-byte proof and submits it to
-          the live vault. A real seal locks lime. A forged one shatters and
-          nothing moves.
+          This flips one byte inside the real 256-byte Groth16 proof. On-chain,
+          the vault rejects a tampered proof: a real one locks lime, a forged one
+          shatters and nothing moves.
         </p>
 
         <SealByteGrid state={forged ? "forged" : "idle"} />
 
         <button className="btn btn-danger" type="button" onClick={run} disabled={busy}>
           {busy ? <span className="spin" aria-hidden="true" /> : <ShieldAlert aria-hidden="true" />}
-          {busy ? "Simulating…" : "Try a fake proof"}
+          {busy ? "Checking…" : "Try a fake proof"}
         </button>
 
         {res && (
@@ -60,8 +60,8 @@ export function CheatPlayground() {
             <div className="cheat-reason mono">{res.reason}</div>
             <p className="help">
               No USDC moves. The proof gates the money, so tampering changes
-              nothing. Replaying a valid proof is rejected too:{" "}
-              <span className="mono">{res.replayCode}</span>. One lock, one loan.
+              nothing. Re-spending a note is rejected too:{" "}
+              <span className="mono">{res.replayCode}</span>. One note, one loan.
             </p>
           </div>
         )}

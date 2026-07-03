@@ -18,7 +18,8 @@ export function TrustFooter() {
                 <InfoIcon />
               </span>
               <span>
-                A <b>checkpoint poster</b> relays Ethereum state to Stellar.
+                <b>Axelar&apos;s validator set</b> carries the cross-chain
+                attestation; Veil runs no relayer of its own.
               </span>
             </div>
             <div className="trust-item">
@@ -42,8 +43,8 @@ export function TrustFooter() {
                 <InfoIcon />
               </span>
               <span>
-                The <b>hashlock is public on both chains</b>, so an Ethereum-side
-                observer can correlate the two legs.
+                The <b>note commitment is public on both chains</b>, so an
+                Ethereum-side observer can correlate the two legs.
               </span>
             </div>
           </div>
@@ -64,7 +65,7 @@ export function TrustFooter() {
               </span>
               <span>
                 The lender, the ledger, and every observer see only{" "}
-                <b>threshold, hashlock, nullifier, proof</b>.
+                <b>threshold, commitment, nullifier, proof</b>.
               </span>
             </div>
             <div className="trust-item">

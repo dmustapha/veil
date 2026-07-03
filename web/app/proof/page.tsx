@@ -12,26 +12,8 @@ export const metadata = {
   title: "Veil proof: what we trust, proven on-chain",
 };
 
-/** Public journal fields, parsed from the real committed journal. No amount, by design. */
+/** Public inputs the proof commits to. No amount, by design. */
 const PUBLIC_ROWS = [
-  {
-    k: "State root",
-    v: "0xe8ad78ff…dc21a851",
-    mono: true,
-    help: "The Ethereum checkpoint your proof is anchored to.",
-  },
-  {
-    k: "Block",
-    v: "11,143,924",
-    mono: false,
-    help: "The Sepolia block that checkpoint was taken at.",
-  },
-  {
-    k: "Escrow",
-    v: "0xb833ffEc…7F1eBd6F",
-    mono: true,
-    help: "The Sepolia contract holding your locked collateral.",
-  },
   {
     k: "Threshold",
     v: `≥ ${POSITION.thresholdEth}`,
@@ -39,16 +21,22 @@ const PUBLIC_ROWS = [
     help: "The public minimum you proved you cleared.",
   },
   {
-    k: "Hashlock",
-    v: "0x23fed9f9…6f08a315",
+    k: "Note commitment",
+    v: "7530136…834832",
     mono: true,
-    help: "The shared lock that ties the Ethereum and Stellar legs together.",
+    help: "The Poseidon2 commitment to your note, inserted into the pool tree.",
   },
   {
     k: "Nullifier",
-    v: "0xee691cef…4174d9f1",
+    v: "one-time spend tag",
+    plain: true,
+    help: "Published when the note is spent, so the same note can never be spent twice.",
+  },
+  {
+    k: "Axelar message",
+    v: "0x6903…d7f9-3",
     mono: true,
-    help: "A one-time tag, so a valid proof can never be spent twice.",
+    help: "The authenticated (commitment, amount) delivery that backed your note with real Sepolia WETH.",
   },
 ] as const;
 
@@ -87,33 +75,32 @@ export default function ProofPage() {
         {/* 2. THE SEAL (centerpiece) */}
         <section className="section-pad wrap">
           <div className="section-head reveal">
-            <div className="section-kicker">The seal</div>
+            <div className="section-kicker">The proof</div>
             <h2 className="section-title">The proof, byte by byte.</h2>
             <p className="section-lead">
-              This is the real {PROOF.system} seal Stellar verifies on its own.
-              It opens with the selector {PROOF.sealSelector}, shown in lime, and
-              the rest is seeded from the program image ID. Stellar reads all{" "}
-              {PROOF.size} and decides for itself.
+              This is the real {PROOF.system} proof Stellar verifies on its own.
+              It is the three curve points {PROOF.layout}, generated in your
+              browser. Stellar reads all {PROOF.size} and decides for itself.
             </p>
           </div>
           <div className={`${styles.sealStage} reveal`} data-d="2">
             <SealByteGrid state="locked" />
           </div>
           <p className={`${styles.sealCaption} reveal`} data-d="3">
-            A real seal locks <b>lime</b>. A forged one is{" "}
-            <b>rejected</b> and nothing moves. The four lime bytes at the front
-            are the selector <span className={styles.code}>{PROOF.sealSelector}</span>;
-            the remaining bytes are the Groth16 proof points the verifier checks.
+            A real proof locks <b>lime</b>. A forged one is{" "}
+            <b>rejected</b> and nothing moves. The lit bytes at the front mark
+            where proof point <span className={styles.code}>A</span> begins; the
+            rest are points B and C, all checked by one {PROOF.curve} pairing.
           </p>
         </section>
 
         {/* 3. THE JOURNAL: PUBLIC vs PRIVATE */}
         <section className="section-pad wrap">
           <div className="section-head reveal">
-            <div className="section-kicker">The journal</div>
+            <div className="section-kicker">Public inputs</div>
             <h2 className="section-title">What Stellar sees, and what it never sees.</h2>
             <p className="section-lead">
-              The proof commits to a small public journal and nothing more.
+              The proof commits to a small set of public inputs and nothing more.
               Everything on the left is on-chain. Everything on the right stays
               inside the prover and is never sent anywhere.
             </p>
@@ -197,19 +184,18 @@ export default function ProofPage() {
             <h2 className="section-title">The contract that checks every proof.</h2>
             <p className="section-lead">
               A single Soroban contract on Stellar testnet does the verification.
-              It is pinned to one program identity, so it only accepts proofs
-              produced by the exact circuit Veil published.
+              It is pinned to one circuit&apos;s verifying key, so it only accepts
+              proofs produced by the exact circuit Veil published.
             </p>
           </div>
 
           <div className={`${styles.verifier} reveal`} data-d="2">
             <div className={styles.vfRow}>
-              <span className={styles.vfK}>Image ID</span>
-              <span className={`${styles.vfV} mono`}>{PROOF.imageId}</span>
+              <span className={styles.vfK}>Circuit binding</span>
+              <span className={`${styles.vfV} mono`}>borrow.circom → verifying key</span>
               <span className={styles.vfHelp}>
-                The program identity the verifier is locked to. Change the
-                circuit and this fingerprint changes, so old proofs stop
-                verifying.
+                The verifier embeds one fixed verifying key. Change the circuit
+                and that key changes, so old proofs stop verifying.
               </span>
             </div>
             <div className={styles.vfRow}>
@@ -247,7 +233,7 @@ export default function ProofPage() {
                 {PROOF.size}
               </span>
               <span className={styles.vfHelp}>
-                The whole seal is {PROOF.size}. That is all Stellar needs to be
+                The whole proof is {PROOF.size}. That is all Stellar needs to be
                 convinced.
               </span>
             </div>
@@ -260,11 +246,12 @@ export default function ProofPage() {
             <div className="section-kicker">Try to cheat</div>
             <h2 className="section-title">Forge the proof, and no USDC moves.</h2>
             <p className="section-lead">
-              This is not a mock. The control below tampers with the real seal
-              and submits it to the live vault. The verifier rejects it with
-              Error(Crypto, InvalidInput), and the seal shatters red. Replaying a
-              real, already-spent proof is rejected too, with
-              Error(Contract, #7 NullifierUsed). Either way the money stays put.
+              This is not hypothetical. In Veil&apos;s live cross-chain run a borrow
+              proof with a tampered public input was rejected on-chain with
+              Error(Contract, #0) InvalidProof, and zero USDC moved. Replay it
+              below and the proof shatters red. Re-spending an already-spent note
+              is rejected too — its nullifier is already recorded. Either way the
+              money stays put.
             </p>
           </div>
           <CheatPlayground />

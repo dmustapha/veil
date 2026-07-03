@@ -1,111 +1,65 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Coins } from "lucide-react";
-import { SealByteGrid } from "@/components/SealByteGrid";
 import { useWallets } from "./WalletContext";
-import { TxLink, Notice } from "./ui";
-import { startProve, checkProve } from "@/lib/app/prove";
-import { borrow } from "@/lib/app/stellar";
-import { updatePosition, type StoredPosition } from "@/lib/app/positions";
-import { stellarTxUrl } from "@/lib/app/format";
-import { ESCROW } from "@/lib/onchain";
+import { StepList, Notice } from "./ui";
+import { BORROW_STEPS, runBorrowPipeline, type BorrowStepKey } from "@/lib/app/pipeline";
+import type { VeilNote } from "@/lib/app/notes";
 
-type Phase = "idle" | "proving" | "borrowing" | "done" | "error";
+const BORROW_INDEX = new Map(BORROW_STEPS.map((s, i) => [s.key, i] as const));
 
-export function BorrowFlow({
-  pos,
-  onBorrowed,
-}: {
-  pos: StoredPosition;
-  onBorrowed: () => void;
-}) {
+/**
+ * Completes an `attested` note: spends it into a LOCKED note, then proves it clears the public
+ * threshold and disburses real USDC — every proof produced on the borrower's device (see pipeline.ts).
+ */
+export function BorrowFlow({ note, onBorrowed }: { note: VeilNote; onBorrowed: () => void }) {
   const { xlm } = useWallets();
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [message, setMessage] = useState("");
-  const [tx, setTx] = useState(pos.borrowTx ?? "");
-  const poll = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [step, setStep] = useState<BorrowStepKey | null>(null);
 
-  useEffect(() => () => void (poll.current && clearTimeout(poll.current)), []);
-
-  const runBorrow = useCallback(
-    async (seal: string, journal: string) => {
-      if (!xlm.address) return;
-      setPhase("borrowing");
-      setMessage("Confirm the borrow in Freighter…");
-      try {
-        const hash = await borrow(seal, journal, xlm.address);
-        updatePosition(pos.h, { borrowTx: hash });
-        setTx(hash);
-        setPhase("done");
-        onBorrowed();
-      } catch (e) {
-        setPhase("error");
-        setMessage(e instanceof Error ? e.message : "The borrow failed.");
-      }
-    },
-    [xlm.address, pos.h, onBorrowed]
-  );
-
-  const pollProof = useCallback(
-    (id: string) => {
-      const tick = async () => {
-        const st = await checkProve(id);
-        if (st.state === "ready") return runBorrow(st.seal, st.journal);
-        if (st.state === "error") {
-          setPhase("error");
-          return setMessage(st.message);
-        }
-        setMessage(st.message ?? "Generating the proof off-chain. This takes a few minutes.");
-        poll.current = setTimeout(tick, 5000);
-      };
-      void tick();
-    },
-    [runBorrow]
-  );
+  const completed = useMemo(() => {
+    const i = step ? BORROW_INDEX.get(step) ?? 0 : 0;
+    return new Set(BORROW_STEPS.slice(0, i).map((s) => s.key));
+  }, [step]);
 
   const start = async () => {
+    setError("");
     if (xlm.status !== "connected" || !xlm.address) {
-      setPhase("error");
-      return setMessage("Connect Freighter on Stellar testnet to receive the loan.");
+      return setError("Connect Freighter on Stellar testnet to receive the loan.");
     }
-    setPhase("proving");
-    setMessage("Generating the proof off-chain. This takes a few minutes.");
+    setBusy(true);
+    setStep(BORROW_STEPS[0].key);
     try {
-      // Bind the proof to the connected Stellar account; the vault rejects redemption by any other.
-      const { id } = await startProve(pos.h, ESCROW, xlm.address);
-      pollProof(id);
+      await runBorrowPipeline(note, { xlmAddress: xlm.address }, (key) => setStep(key));
+      setStep(null);
+      onBorrowed();
     } catch (e) {
-      setPhase("error");
-      setMessage(e instanceof Error ? e.message : "Could not start proving.");
+      setError(e instanceof Error ? friendly(e.message) : "The borrow failed.");
+      setStep(null);
+    } finally {
+      setBusy(false);
     }
   };
 
-  if (tx || phase === "done") {
-    return (
-      <Notice tone="ok">
-        USDC borrowed on Stellar. <TxLink href={stellarTxUrl(tx)} label="View on Stellar Expert" />
-      </Notice>
-    );
-  }
-
-  const working = phase === "proving" || phase === "borrowing";
   return (
     <div className="borrow-flow">
-      {working && (
-        <div className="prove-stage">
-          <SealByteGrid state="idle" />
-          <p className="help proving-note">
-            <span className="spin-lime" aria-hidden="true" /> {message}
-          </p>
-        </div>
-      )}
-      {phase === "error" && <Notice tone="error">{message}</Notice>}
-      {!working && (
+      {busy && <StepList steps={BORROW_STEPS} current={step} done={completed} />}
+      {error && <Notice tone="error">{error}</Notice>}
+      {!busy && (
         <button className="btn btn-primary" type="button" onClick={start}>
           <Coins aria-hidden="true" /> Borrow USDC
         </button>
       )}
     </div>
   );
+}
+
+function friendly(msg: string): string {
+  if (/Signing was rejected|user rejected|denied/i.test(msg)) return "You rejected the transaction.";
+  if (/below the threshold/i.test(msg)) return "This note is below the public threshold and cannot borrow.";
+  if (/commitment not found|reconstruction incomplete/i.test(msg))
+    return "The note isn't visible in the pool yet — give the attestation a moment and retry.";
+  return msg.length > 180 ? msg.slice(0, 180) + "…" : msg;
 }

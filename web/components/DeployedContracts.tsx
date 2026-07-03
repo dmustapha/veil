@@ -2,11 +2,12 @@ import { DEPLOYED } from "@/lib/constants";
 import { ExternalIcon } from "./icons";
 
 const ROWS = [
-  DEPLOYED.escrow,
+  DEPLOYED.ethLock,
+  DEPLOYED.pool,
   DEPLOYED.vault,
   DEPLOYED.verifier,
+  DEPLOYED.lockTx,
   DEPLOYED.borrowTx,
-  DEPLOYED.unlockTx,
 ];
 
 export function DeployedContracts() {
@@ -16,8 +17,9 @@ export function DeployedContracts() {
         <div className="section-kicker">Live on real testnets</div>
         <h2 className="section-title">Deployed contracts and on-chain proof.</h2>
         <p className="section-lead">
-          Real escrow on Ethereum Sepolia, a real Soroban vault and verifier on
-          Stellar, and the transactions that disbursed and unlocked the loan.
+          A real WETH lock on Ethereum Sepolia, the Soroban pool, vault, and
+          Groth16 verifier on Stellar, and the live cross-chain transactions that
+          locked collateral and disbursed the loan.
         </p>
       </div>
 

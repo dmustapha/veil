@@ -1,18 +1,93 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Inbox } from "lucide-react";
+import { Inbox, Lock } from "lucide-react";
 import { WalletProvider } from "./WalletContext";
 import { WalletBar } from "./WalletBar";
 import { OpenPosition } from "./OpenPosition";
-import { PositionCard } from "./PositionCard";
+import { NoteCard } from "./NoteCard";
 import { PrivacyLedger } from "./PrivacyLedger";
 import { CheatPlayground } from "./CheatPlayground";
-import { loadPositions, type StoredPosition } from "@/lib/app/positions";
+import { Notice } from "./ui";
+import { isVaultUnlocked, loadNotes, unlockVault, type VeilNote } from "@/lib/app/notes";
+
+/**
+ * Gate the workspace behind the note vault's passphrase. Notes are AES-GCM encrypted on this device
+ * (audit M-01); their opening secrets ARE the spend witness, so nothing loads until the session key is
+ * derived. The passphrase never leaves the browser.
+ */
+function VaultGate({ children }: { children: React.ReactNode }) {
+  const [unlocked, setUnlocked] = useState(false);
+  const [passphrase, setPassphrase] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => setUnlocked(isVaultUnlocked()), []);
+
+  const submit = async () => {
+    setError("");
+    if (passphrase.length < 8) return setError("Use at least 8 characters.");
+    setBusy(true);
+    try {
+      await unlockVault(passphrase);
+      setPassphrase("");
+      setUnlocked(true);
+    } catch (e) {
+      setError(e instanceof Error && /incorrect passphrase/.test(e.message) ? "Incorrect passphrase." : "Could not unlock.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (unlocked) return <>{children}</>;
+
+  return (
+    <div className="card reveal vault-gate">
+      <div className="card-pad">
+        <div className="card-head">
+          <div>
+            <div className="card-title">Unlock your notes</div>
+            <div className="card-sub">Encrypted on this device — the passphrase never leaves your browser</div>
+          </div>
+          <span className="chain-tag">
+            <Lock aria-hidden="true" /> Local
+          </span>
+        </div>
+        <div className="app-form">
+          <label className="app-field">
+            <span className="app-label">Passphrase</span>
+            <input
+              className="app-input mono"
+              type="password"
+              placeholder="at least 8 characters"
+              value={passphrase}
+              onChange={(e) => setPassphrase(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && !busy && submit()}
+              disabled={busy}
+              aria-label="Vault passphrase"
+              autoComplete="current-password"
+            />
+            <span className="help">
+              First time here? Choose a passphrase to encrypt your shielded notes. Returning? Enter the
+              same one to decrypt them.
+            </span>
+          </label>
+        </div>
+        <button className="btn btn-primary app-cta" type="button" onClick={submit} disabled={busy || passphrase.length < 8}>
+          {busy ? <span className="spin-lime" aria-hidden="true" /> : <Lock aria-hidden="true" />}
+          {busy ? "Unlocking…" : "Unlock"}
+        </button>
+        {error && <Notice tone="error">{error}</Notice>}
+      </div>
+    </div>
+  );
+}
 
 function Positions() {
-  const [list, setList] = useState<StoredPosition[]>([]);
-  const reload = useCallback(() => setList(loadPositions()), []);
+  const [list, setList] = useState<VeilNote[]>([]);
+  const reload = useCallback(() => {
+    void loadNotes().then(setList);
+  }, []);
 
   useEffect(() => {
     reload();
@@ -23,9 +98,8 @@ function Positions() {
       <div className="app-section-head reveal">
         <h2 className="app-h2">Your positions</h2>
         <p className="help">
-          Each card reads the live escrow lock, the Soroban loan, and the
-          Reflector price. The collateral amount is never shown, only the public
-          threshold.
+          Lock ETH on Ethereum, prove it across chains, and borrow real USDC on Stellar — the exact
+          amount and your address stay on your device. Only the public threshold is ever shown.
         </p>
       </div>
 
@@ -40,8 +114,8 @@ function Positions() {
         </div>
       ) : (
         <div className="pos-grid">
-          {list.map((p) => (
-            <PositionCard key={p.h} pos={p} />
+          {list.map((n) => (
+            <NoteCard key={n.commitmentAvailable} note={n} onChanged={reload} />
           ))}
         </div>
       )}
@@ -56,13 +130,14 @@ export function AppWorkspace() {
         <WalletBar />
       </section>
       <section className="wrap app-body">
-        <Positions />
+        <VaultGate>
+          <Positions />
+        </VaultGate>
         <div className="app-section-head reveal" style={{ marginTop: 8 }}>
           <h2 className="app-h2">What Stellar sees</h2>
           <p className="help">
-            The same loan, two ways: what a naive cross-chain design would publish
-            versus what Veil&apos;s proof actually records. This is the privacy the
-            ZK buys, made legible.
+            The same loan, two ways: what a naive cross-chain design would publish versus what Veil&apos;s
+            proof actually records. This is the privacy the ZK buys, made legible.
           </p>
         </div>
         <div className="reveal">
