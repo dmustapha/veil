@@ -16,6 +16,9 @@ vendor() { # <circuit>: copy the Test(16)-wrapper wasm + ceremony zkey + vkey in
   echo "vendored $c.{wasm,zkey,vk.json} -> $dst"
 }
 
-vendor borrow
+# Only vendor circuits changed in the reverse-leg build. borrow + deposit_from_eth are ALREADY
+# vendored and their proving keys are matched pairs with the LIVE deployed verifiers — re-vendoring
+# them from disk risks clobbering the working artifacts with a stale/re-ceremonied zkey. Do NOT add
+# them back without re-confirming disk == deployment.
 vendor lock
-vendor deposit_from_eth
+# vendor release_repaid   # <- uncommented in Task 10 once the circuit is compiled + ceremonied

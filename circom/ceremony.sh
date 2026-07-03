@@ -17,8 +17,18 @@
 # `keys/*.vk.json` are what gets embedded in the on-chain verifier.
 #
 # Reproduce: `cd circom && npm i && bash ceremony.sh`  (regenerates <c>.zkey locally + keys/<c>.vk.json)
+#
+# ⚠️ NON-DETERMINISTIC: `zkey contribute` mixes OS randomness, so each run produces a DIFFERENT
+# zkey+vk. Re-running for an UNCHANGED circuit INVALIDATES its committed vk vs the live deployed
+# verifier. Only re-ceremony a circuit whose .r1cs actually changed. Pass circuit name(s) explicitly;
+# the no-arg full-loop is disabled to prevent accidental clobber of deployed circuits' keys.
 set -e
-for c in borrow lock unlock seize deposit_from_eth; do
+CIRCUITS=("$@")
+if [ ${#CIRCUITS[@]} -eq 0 ]; then
+  echo "usage: bash ceremony.sh <circuit> [<circuit> ...]   (only circuits whose .r1cs changed)"
+  exit 1
+fi
+for c in "${CIRCUITS[@]}"; do
   echo "=== $c ==="
   snarkjs groth16 setup "${c}_test.r1cs" ptau/pot15_final.ptau "/tmp/${c}_0000.zkey"
   snarkjs zkey contribute "/tmp/${c}_0000.zkey" "${c}.zkey" \
