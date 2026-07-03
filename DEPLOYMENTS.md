@@ -416,3 +416,18 @@ re-locks on this new pool (fresh e2e, per U10).
 
 Stellar Amplifier chain name (for VeilEthLock v2 trusted source, Task 8): `stellar-2026-q1-2` (re-verify).
 Axelar gas token (if wiring pay_gas later): native XLM SAC `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC`.
+
+## VeilEthLock v2 (Sepolia, reverse leg) — 2026-07-03, deployer `0xe9179cEf…`
+
+- **VeilEthLockV2:** `0x2C4A669AD2f5Aeb1Ab91681022D1924DBED6f4AC` (deploy tx `0x88d801b295afec5b667ff9f07b04e1c2827343d3717b5fab450077fc4ecd5312`)
+  - constructor: WETH `0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14`, verifier (reused v1 DepositFromEthVerifier)
+    `0xfe346c22f793032a1f5d3ba18d940fe27e9fc19f`, gateway `0xe432150cce91c13a887f7D836923d5597adD8E31`,
+    gasService `0xbE406F0189A0B4cf3A05C286473D23791Dd44Cc6`.
+  - `setTrustedSource("stellar-2026-q1-2", "CA67KKXW…MWUB")` (reverse execute pin) tx `0xa28509d6a7f4be05289538bcae7e1c5cd1a0eb2cbd3ce703b596e0b1fee02191`
+  - `setDestination("stellar-2026-q1-2", "CA67KKXW…MWUB")` (forward lock attest dest) tx `0x32fa1da8a2f499fbdc5feb2cee8de43eea39d95b6a31ffcbe1d5d6887cba0742`
+- **Stellar side:** `veil-pool.set_eth_lock("0x2C4A669AD2f5Aeb1Ab91681022D1924DBED6f4AC")` tx `e06b41d6bfcea4dfbcb44aed69cd6ccee64dfa0a91569cacd7293b8609f5620f`
+- Gas: pay_gas SKIPPED (optional); reverse hop executed via Axelarscan manual add-gas. WETH funding for
+  the fresh lock deferred to the Task 15 e2e (wrap ETH→WETH; deployer holds ~2.05 ETH, 0 WETH).
+- ⚠️ §5.3 format-verify at e2e: forward source_address (Axelar delivers EIP-55 checksummed EVM — matches
+  v1 pattern) and reverse trustedSourceAddress (Stellar strkey form) — both are one-time pins; if a form
+  mismatch surfaces in Task 15, redeploy the affected side.
