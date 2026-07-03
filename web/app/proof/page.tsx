@@ -5,7 +5,7 @@ import { SealByteGrid } from "@/components/SealByteGrid";
 import { DeployedContracts } from "@/components/DeployedContracts";
 import { TrustFooter } from "@/components/TrustFooter";
 import { CheatPlayground } from "@/components/app/CheatPlayground";
-import { PROOF, DEPLOYED, POSITION } from "@/lib/constants";
+import { PROOF, DEPLOYED } from "@/lib/constants";
 import styles from "./proof.module.css";
 
 export const metadata = {
@@ -16,9 +16,9 @@ export const metadata = {
 const PUBLIC_ROWS = [
   {
     k: "Threshold",
-    v: `≥ ${POSITION.thresholdEth}`,
+    v: "cleared",
     plain: true,
-    help: "The public minimum you proved you cleared.",
+    help: "Proof that your collateral cleared the required minimum — the figure itself is never published.",
   },
   {
     k: "Note commitment",

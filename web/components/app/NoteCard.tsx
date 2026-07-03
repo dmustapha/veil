@@ -43,7 +43,7 @@ export function NoteCard({ note, onChanged }: { note: VeilNote; onChanged: () =>
 
         <div className="pos-facts">
           <Fact k="Your collateral" v={`${formatEther(BigInt(note.amount))} ETH`} />
-          <Fact k="Proven to Stellar" v={`≥ ${POSITION.thresholdEth}`} />
+          <Fact k="Proven to Stellar" v="Threshold cleared" />
           <Fact k="Collateral chain" v={POSITION.collateralChain} />
           <Fact k="Lending chain" v={POSITION.lendingChain} />
           {note.lockTxEth && (

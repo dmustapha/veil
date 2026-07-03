@@ -54,7 +54,21 @@ export function ContinueOpen({ note, onChanged }: { note: VeilNote; onChanged: (
         This note is still being attested across chains. It becomes borrowable once Axelar delivers the
         lock to Stellar.
       </p>
-      {busy && <StepList steps={OPEN_STEPS} current={step} done={completed} detail={detail} />}
+      {busy && (
+        <StepList
+          steps={OPEN_STEPS}
+          current={step}
+          done={completed}
+          detail={detail}
+          waitKeys={["attest"]}
+          waitText={
+            <>
+              <b>Waiting for Ethereum to finalize the lock — this can take ~13 minutes.</b>{" "}
+              It&apos;s safe to leave this page; the attestation resumes where it left off.
+            </>
+          }
+        />
+      )}
       {error && <Notice tone="error">{error}</Notice>}
       {!busy && (
         <button className="btn btn-ghost" type="button" onClick={resume}>

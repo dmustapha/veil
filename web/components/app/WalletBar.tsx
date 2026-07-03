@@ -1,16 +1,17 @@
 "use client";
 
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Wallet, Plus } from "lucide-react";
 import { useWallets, type WalletStatus } from "./WalletContext";
 import { truncate } from "@/lib/app/format";
 
-const HINT: Record<WalletStatus, string> = {
-  idle: "",
+/** Short status line under the wallet name for each connection state. */
+const SUB: Record<WalletStatus, string> = {
+  idle: "Not connected",
   connecting: "Connecting…",
-  connected: "",
+  connected: "Connected",
   missing: "Not installed",
   "wrong-network": "Wrong network",
-  error: "Try again",
+  error: "Connection failed — retry",
 };
 
 function Chip({
@@ -30,36 +31,66 @@ function Chip({
   onConnect: () => void;
   onFix?: () => void;
 }) {
+  const badge = (
+    <span className="wallet-ic" aria-hidden="true">
+      <Wallet />
+    </span>
+  );
+
+  // Connected — non-interactive summary with a truncated address chip.
   if (status === "connected" && address) {
     return (
-      <div className="wallet-chip connected">
-        <span className={`glyph ${glyph}`} aria-hidden="true" />
-        <span className="wallet-name">{chain}</span>
+      <div className={`wallet-chip ${glyph} connected`}>
+        {badge}
+        <span className="wallet-col">
+          <span className="wallet-name">{name}</span>
+          <span className="wallet-sub">
+            <span className="wallet-status-dot" aria-hidden="true" />
+            {chain} · Connected
+          </span>
+        </span>
         <span className="wallet-addr mono">{truncate(address)}</span>
       </div>
     );
   }
+
+  // Wrong network — prompt to switch.
   if (status === "wrong-network") {
     return (
-      <button type="button" className="wallet-chip warn" onClick={onFix ?? onConnect}>
-        <AlertTriangle aria-hidden="true" />
-        <span className="wallet-name">{chain}: switch network</span>
-        <span className="wallet-hint">{address ? truncate(address) : ""}</span>
+      <button
+        type="button"
+        className={`wallet-chip ${glyph} warn`}
+        onClick={onFix ?? onConnect}
+      >
+        <span className="wallet-ic warn" aria-hidden="true">
+          <AlertTriangle />
+        </span>
+        <span className="wallet-col">
+          <span className="wallet-name">{name}</span>
+          <span className="wallet-sub">Wrong network — switch to {chain}</span>
+        </span>
+        {address ? <span className="wallet-addr mono">{truncate(address)}</span> : null}
       </button>
     );
   }
+
+  // Idle / connecting / missing / error — a real connect button.
+  const connecting = status === "connecting";
   return (
     <button
       type="button"
-      className="wallet-chip"
+      className={`wallet-chip ${glyph}`}
       onClick={onConnect}
-      disabled={status === "connecting"}
+      disabled={connecting}
     >
-      <span className={`glyph ${glyph}`} aria-hidden="true" />
-      <span className="wallet-name">
-        {status === "idle" ? `Connect ${name}` : name}
+      {badge}
+      <span className="wallet-col">
+        <span className="wallet-name">{name}</span>
+        <span className="wallet-sub">{SUB[status]}</span>
       </span>
-      {HINT[status] && <span className="wallet-hint">{HINT[status]}</span>}
+      <span className="wallet-cta" aria-hidden="true">
+        {connecting ? <span className="spin-lime" /> : <Plus />}
+      </span>
     </button>
   );
 }

@@ -12,7 +12,7 @@ import { Nav } from "@/components/Nav";
 import { SiteFooter } from "@/components/SiteFooter";
 import { FrostedVeil } from "@/components/FrostedVeil";
 import { SealByteGrid } from "@/components/SealByteGrid";
-import { POSITION, PROOF, SITE } from "@/lib/constants";
+import { PROOF, SITE } from "@/lib/constants";
 import styles from "./page.module.css";
 
 const CAPABILITIES = [
@@ -109,8 +109,8 @@ export default function LandingPage() {
               </div>
               <FrostedVeil />
               <p className={styles.showCap}>
-                The exact collateral stays behind frosted glass. Only the public
-                minimum, <b>at least {POSITION.thresholdEth}</b>, is ever shown.
+                The exact collateral stays behind frosted glass. Only the fact
+                that it <b>clears the required threshold</b> is ever shown.
               </p>
             </div>
             <div className={`${styles.show} ${styles.hard}`}>

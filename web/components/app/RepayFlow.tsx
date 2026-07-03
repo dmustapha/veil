@@ -54,7 +54,21 @@ export function RepayFlow({ note, onRepaid }: { note: VeilNote; onRepaid: () => 
 
   return (
     <div className="repay-flow">
-      {busy && <StepList steps={REPAY_STEPS} current={step} done={completed} />}
+      {busy && (
+        <StepList
+          steps={REPAY_STEPS}
+          current={step}
+          done={completed}
+          waitKeys={["axelar", "released"]}
+          waitText={
+            <>
+              <b>Relaying back to Ethereum can take a few minutes.</b> The release is already
+              submitted — it&apos;s safe to leave; reopen the position later to finish recovering your
+              WETH.
+            </>
+          }
+        />
+      )}
       {error && <Notice tone="error">{error}</Notice>}
       {!busy && (
         <button className="btn btn-primary" type="button" onClick={start}>

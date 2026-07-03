@@ -46,8 +46,24 @@
   --red-glow: rgba(255, 59, 48, 0.18);
 
   --text: #dce0e4;
-  --text-dim: #a4abb4;
-  --text-faint: #838b95;
+  /* body/secondary/caption text — lifted to clear WCAG AA (>=4.5:1) on the ink world */
+  --text-dim: #aeb5be;
+  --text-faint: #939ba5;
+
+  /* surface elevation levels (cards sit above the page) */
+  --surface-1: #0e1117;
+  --surface-2: #141822;
+  --surface-3: #1b212d;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -16px rgba(0, 0, 0, 0.7);
+
+  /* 8pt spacing scale */
+  --s-1: 8px;
+  --s-2: 16px;
+  --s-3: 24px;
+  --s-4: 32px;
+  --s-6: 48px;
+  --s-8: 64px;
+  --s-12: 96px;
 
   /* aliases so legacy /app components do not break (retired this unit) */
   --steel: var(--lime);
@@ -101,7 +117,6 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow-x: hidden;
-  min-height: 100vh;
 }
 
 ::selection {
@@ -460,10 +475,10 @@ h1.hero-title em {
 .card {
   background: linear-gradient(
     180deg,
-    rgba(20, 24, 34, 0.9),
-    rgba(12, 15, 21, 0.92)
+    rgba(27, 33, 45, 0.92),
+    rgba(12, 15, 21, 0.94)
   );
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--r-xl);
   box-shadow: var(--shadow-card);
   position: relative;
@@ -695,10 +710,10 @@ h1.hero-title em {
   }
 }
 .metric {
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
   padding: 14px 16px;
-  background: rgba(199, 204, 209, 0.02);
+  background: rgba(199, 204, 209, 0.04);
 }
 .metric .k {
   font-size: 11.5px;
@@ -977,11 +992,16 @@ h1.hero-title em {
 
 /* ============================ SECTION SHELL ============================ */
 .section-pad {
-  padding: 60px 0;
+  padding: 48px 0;
+}
+@media (min-width: 768px) {
+  .section-pad {
+    padding: var(--s-8) 0;
+  }
 }
 .section-head {
   max-width: 60ch;
-  margin-bottom: 34px;
+  margin-bottom: var(--s-4);
 }
 .section-kicker {
   font-size: 12px;
@@ -1397,8 +1417,8 @@ h2.section-title {
 
 footer.foot {
   max-width: var(--maxw);
-  margin: 56px auto 0;
-  padding: 36px 24px 56px;
+  margin: var(--s-6) auto 0;
+  padding: var(--s-4) 24px var(--s-6);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1430,8 +1450,7 @@ footer.foot {
   z-index: 2;
   max-width: var(--maxw);
   margin: 0 auto;
-  padding: 120px 24px;
-  min-height: 60vh;
+  padding: var(--s-8) 24px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -1494,63 +1513,143 @@ h1.app-title {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 22px;
+  margin-bottom: var(--s-3);
 }
 .wallet-chip {
-  flex: 1;
-  min-width: 150px;
-  display: inline-flex;
+  flex: 1 1 240px;
+  min-width: 220px;
+  display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 12px;
+  min-height: 60px;
+  padding: 12px 14px;
   font-family: var(--font-body-stack);
-  font-size: 13px;
-  font-weight: 500;
   color: var(--platinum);
-  padding: 11px 14px;
+  text-align: left;
   border-radius: var(--r-md);
   border: 1px solid var(--line-strong);
-  background: rgba(199, 204, 209, 0.03);
+  background: var(--surface-2);
   cursor: pointer;
-  transition: border-color 160ms var(--ease), background 160ms var(--ease),
-    color 160ms var(--ease);
+  transition: transform 160ms var(--ease), border-color 160ms var(--ease),
+    background 160ms var(--ease), box-shadow 160ms var(--ease);
 }
 @media (hover: hover) {
   button.wallet-chip:hover {
+    transform: translateY(-2px);
     border-color: var(--platinum-dim);
-    background: rgba(199, 204, 209, 0.06);
-    color: var(--platinum-bright);
+    background: var(--surface-3);
+    box-shadow: var(--shadow-sm);
   }
 }
 button.wallet-chip:active {
-  transform: scale(0.99);
+  transform: translateY(0) scale(0.99);
 }
 .wallet-chip:disabled {
-  opacity: 0.6;
+  opacity: 0.65;
   cursor: progress;
+  transform: none;
 }
-.wallet-chip.connected {
-  border-color: rgba(127, 168, 214, 0.45);
-  background: rgba(127, 168, 214, 0.08);
-  cursor: default;
+
+/* icon badge — chain-tinted */
+.wallet-ic {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  background: rgba(199, 204, 209, 0.06);
+  color: var(--platinum-bright);
 }
-.wallet-chip .glyph {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
+.wallet-ic svg {
+  width: 18px;
+  height: 18px;
+}
+.wallet-chip.xlm .wallet-ic {
+  border-color: rgba(198, 255, 77, 0.32);
+  background: rgba(198, 255, 77, 0.08);
+  color: var(--lime);
+}
+.wallet-ic.warn {
+  border-color: rgba(255, 86, 76, 0.4);
+  background: rgba(255, 86, 76, 0.1);
+  color: var(--red-bright);
+}
+
+/* name + status column */
+.wallet-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 .wallet-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--platinum-bright);
   white-space: nowrap;
+  line-height: 1.2;
 }
+.wallet-sub {
+  font-size: 12px;
+  color: var(--text-faint);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.3;
+}
+.wallet-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex: 0 0 auto;
+}
+
+/* trailing address pill / connect affordance */
 .wallet-addr {
   margin-left: auto;
   font-size: 12px;
-  color: var(--steel-bright);
+  color: var(--platinum);
+  background: rgba(199, 204, 209, 0.07);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 11px;
+  white-space: nowrap;
 }
-.wallet-hint {
+.wallet-cta {
   margin-left: auto;
-  font-size: 11.5px;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
   color: var(--text-faint);
+  border: 1px solid var(--line);
+  transition: color 160ms var(--ease), border-color 160ms var(--ease);
+}
+.wallet-cta svg {
+  width: 15px;
+  height: 15px;
+}
+@media (hover: hover) {
+  button.wallet-chip:hover .wallet-cta {
+    color: var(--platinum-bright);
+    border-color: var(--platinum-dim);
+  }
+}
+
+/* connected — verified accent (lime is the "good state" moment on this surface) */
+.wallet-chip.connected {
+  border-color: rgba(198, 255, 77, 0.38);
+  background: rgba(198, 255, 77, 0.05);
+  cursor: default;
+}
+.wallet-chip.connected .wallet-status-dot {
+  background: var(--lime);
+  box-shadow: 0 0 8px var(--lime-glow);
 }
 
 /* ---- source badge ---- */
@@ -1960,10 +2059,10 @@ h2.app-h2,
   margin: 18px 0 4px;
 }
 .pos-fact {
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: var(--r-sm);
   padding: 10px 12px;
-  background: rgba(199, 204, 209, 0.02);
+  background: rgba(199, 204, 209, 0.035);
   min-width: 0;
 }
 .pf-k {
@@ -1996,6 +2095,18 @@ h2.app-h2,
   background: var(--line);
   margin: 6px 0 2px;
 }
+.pos-terminal {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--lime);
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid rgba(198, 255, 77, 0.32);
+  background: rgba(198, 255, 77, 0.06);
+}
 .pos-sub-title {
   font-size: 13px;
   color: var(--platinum-dim);
@@ -2019,6 +2130,120 @@ h2.app-h2,
   display: flex;
   align-items: center;
   gap: 9px;
+}
+
+/* ---- transaction step list (live progress) ---- */
+.step-panel {
+  margin-top: 16px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  padding: 16px 18px;
+}
+.step-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* scoped to override the landing `.step` grid */
+.step-list .step {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 7px 0;
+  position: relative;
+}
+.step-list .step::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 26px;
+  bottom: -7px;
+  width: 1.5px;
+  background: var(--line-strong);
+}
+.step-list .step:last-child::after {
+  display: none;
+}
+.step-list .step.done::after {
+  background: var(--lime-dim);
+}
+.step-list .step-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  position: relative;
+  z-index: 1;
+  background: var(--surface-2);
+  color: var(--text-faint);
+}
+.step-list .step-mark svg {
+  width: 14px;
+  height: 14px;
+}
+.step-list .step.done .step-mark {
+  color: var(--lime);
+}
+.step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--hard-line-strong);
+}
+.step-list .step-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 1px;
+  min-width: 0;
+}
+.step-text {
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--text-faint);
+}
+.step-list .step.active .step-text {
+  color: var(--platinum-bright);
+  font-weight: 600;
+}
+.step-list .step.done .step-text {
+  color: var(--text-dim);
+}
+.step-detail {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--platinum-dim);
+}
+
+/* long-wait reassurance banner */
+.step-wait {
+  margin: 14px 0 0;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 11px 13px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line-strong);
+  background: rgba(199, 204, 209, 0.03);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+.step-wait svg {
+  width: 15px;
+  height: 15px;
+  color: var(--platinum-dim);
+  margin-top: 1px;
+  flex: 0 0 auto;
+}
+.step-wait b {
+  color: var(--platinum-bright);
+  font-weight: 600;
 }
 
 /* ---- cheat playground ---- */

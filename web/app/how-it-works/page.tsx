@@ -21,7 +21,7 @@ import {
 import { Nav } from "@/components/Nav";
 import { SiteFooter } from "@/components/SiteFooter";
 import { FrostedVeil } from "@/components/FrostedVeil";
-import { POSITION, PROOF } from "@/lib/constants";
+import { PROOF } from "@/lib/constants";
 import s from "./page.module.css";
 
 export const metadata = {
@@ -117,8 +117,8 @@ const PUBLIC = [
     Icon: Gauge,
     text: (
       <>
-        <b>A threshold floor.</b> Everyone sees only that you cleared{" "}
-        <b>{"≥"} {POSITION.thresholdEth}</b>, never the figure above it.
+        <b>A threshold floor.</b> Everyone sees only that you{" "}
+        <b>cleared the required minimum</b>, never the figure above it.
       </>
     ),
   },

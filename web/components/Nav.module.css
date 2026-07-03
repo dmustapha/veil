@@ -39,11 +39,27 @@
   gap: 7px;
   font-size: 14px;
   color: var(--text-dim);
+  position: relative;
+  padding: 8px 2px;
   transition: color 160ms var(--ease);
 }
 .link svg {
   width: 15px;
   height: 15px;
+}
+/* active indicator: a hairline bar under the current page link */
+.link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--platinum-bright);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 180ms var(--ease);
 }
 @media (hover: hover) {
   .link:hover {
@@ -55,6 +71,14 @@
 }
 .active {
   color: var(--platinum-bright);
+}
+.active::after {
+  transform: scaleX(1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .link::after {
+    transition: none;
+  }
 }
 
 .pill {

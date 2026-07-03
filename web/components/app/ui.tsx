@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ExternalLink } from "lucide-react";
+import { Check, Clock, ExternalLink } from "lucide-react";
 
 /** A monospace transaction link to a block explorer. */
 export function TxLink({ href, label }: { href: string; label: string }) {
@@ -26,40 +26,59 @@ export function Notice({
   );
 }
 
-/** A live progress checklist for a multi-step flow: done steps get a check, the active step spins. */
+/**
+ * A live progress checklist for a multi-step flow: done steps get a check, the active step spins and
+ * is emphasized, and an optional live `detail` sub-status streams under it. When the active step is a
+ * known long wait (`waitKeys`), a reassurance banner explains the delay so it never looks frozen.
+ */
 export function StepList({
   steps,
   current,
   done,
   detail,
+  waitKeys,
+  waitText,
 }: {
   steps: readonly { key: string; label: string }[];
   current: string | null;
   done: ReadonlySet<string>;
   detail?: string;
+  waitKeys?: readonly string[];
+  waitText?: React.ReactNode;
 }) {
+  const waiting = !!current && !!waitKeys?.includes(current);
   return (
-    <ol className="step-list" aria-live="polite">
-      {steps.map((s) => {
-        const state = done.has(s.key) ? "done" : s.key === current ? "active" : "pending";
-        return (
-          <li key={s.key} className={`step ${state}`}>
-            <span className="step-mark" aria-hidden="true">
-              {state === "done" ? (
-                <Check />
-              ) : state === "active" ? (
-                <span className="spin-lime" />
-              ) : (
-                <span className="step-dot" />
-              )}
-            </span>
-            <span className="step-label">
-              {s.label}
-              {state === "active" && detail ? <span className="help"> — {detail}</span> : null}
-            </span>
-          </li>
-        );
-      })}
-    </ol>
+    <div className="step-panel">
+      <ol className="step-list" aria-live="polite">
+        {steps.map((s) => {
+          const state = done.has(s.key) ? "done" : s.key === current ? "active" : "pending";
+          return (
+            <li key={s.key} className={`step ${state}`}>
+              <span className="step-mark" aria-hidden="true">
+                {state === "done" ? (
+                  <Check />
+                ) : state === "active" ? (
+                  <span className="spin-lime" />
+                ) : (
+                  <span className="step-dot" />
+                )}
+              </span>
+              <span className="step-label">
+                <span className="step-text">{s.label}</span>
+                {state === "active" && detail ? (
+                  <span className="step-detail">{detail}</span>
+                ) : null}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      {waiting && waitText ? (
+        <p className="step-wait" role="status">
+          <Clock aria-hidden="true" />
+          <span>{waitText}</span>
+        </p>
+      ) : null}
+    </div>
   );
 }

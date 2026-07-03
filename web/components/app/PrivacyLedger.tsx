@@ -1,5 +1,4 @@
 import { EyeOff, ShieldCheck } from "lucide-react";
-import { POSITION } from "@/lib/constants";
 import styles from "./PrivacyLedger.module.css";
 
 /** Five redaction blocks standing in for a hidden value. */
@@ -55,7 +54,7 @@ export function PrivacyLedger() {
           <div className={styles.row}>
             <span className={styles.k}>Collateral amount</span>
             <span className={`${styles.v} ${styles.ok}`}>
-              <Hidden /> &nbsp;≥ {POSITION.thresholdEth}
+              <Hidden /> &nbsp;clears the bar
             </span>
           </div>
           <div className={styles.row}>
@@ -69,7 +68,7 @@ export function PrivacyLedger() {
             <span className={`${styles.v} ${styles.ok}`}>threshold, commitment, nullifier, proof</span>
           </div>
         </div>
-        <p className={styles.foot}>→ Stellar learns only “they cleared {POSITION.thresholdEth}.” Nothing about how much, or who.</p>
+        <p className={styles.foot}>→ Stellar learns only “they cleared the required threshold.” Nothing about how much, or who.</p>
       </div>
     </div>
   );

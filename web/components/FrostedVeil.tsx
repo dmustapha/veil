@@ -1,11 +1,10 @@
 import { EyeOff, Lock } from "lucide-react";
-import { POSITION } from "@/lib/constants";
 import styles from "./FrostedVeil.module.css";
 
 /**
  * Signature 1: the frosted veil. The exact collateral amount sits behind
  * real frosted glass and is NEVER rendered: only redaction blocks and the
- * public threshold (>= 0.005 ETH) are ever shown. Privacy invariant.
+ * fact that it clears the required threshold are ever shown. Privacy invariant.
  */
 export function FrostedVeil({ className }: { className?: string }) {
   return (
@@ -33,8 +32,8 @@ export function FrostedVeil({ className }: { className?: string }) {
         </div>
       </div>
       <p className={styles.foot}>
-        We prove <b>{"≥"} {POSITION.thresholdEth}</b>{" "}
-        <span className={styles.sub}>(threshold)</span>
+        We prove it <b>clears the threshold</b>{" "}
+        <span className={styles.sub}>(amount stays hidden)</span>
       </p>
     </div>
   );

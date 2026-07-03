@@ -130,7 +130,7 @@
 
 /* ---------------- WHAT YOU CAN DO (soft zone) ---------------- */
 .band {
-  padding: 50px 0;
+  padding: 48px 0;
 }
 @media (min-width: 768px) {
   .band {
@@ -139,7 +139,7 @@
 }
 .bandHead {
   max-width: 60ch;
-  margin-bottom: 28px;
+  margin-bottom: var(--s-4);
 }
 .kicker {
   font-size: 12.5px;
@@ -397,12 +397,12 @@
 
 /* ---------------- FINAL CTA (soft zone) ---------------- */
 .final {
-  padding: 60px 0;
+  padding: 48px 0;
   text-align: center;
 }
 @media (min-width: 768px) {
   .final {
-    padding: 76px 0;
+    padding: var(--s-8) 0;
   }
 }
 .finalCard {

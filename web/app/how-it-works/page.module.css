@@ -63,7 +63,7 @@
 }
 @media (min-width: 768px) {
   .band {
-    padding: 62px 0;
+    padding: 64px 0;
   }
 }
 .head {
@@ -652,12 +652,12 @@
 
 /* ---------------- CLOSING (soft zone) ---------------- */
 .final {
-  padding: 60px 0;
+  padding: 48px 0;
   text-align: center;
 }
 @media (min-width: 768px) {
   .final {
-    padding: 76px 0;
+    padding: var(--s-8) 0;
   }
 }
 .finalCard {

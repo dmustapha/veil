@@ -7,7 +7,6 @@ import { StepList, Notice } from "./ui";
 import { createNote, saveNote } from "@/lib/app/notes";
 import { OPEN_STEPS, parseCollateral, runOpenPipeline, type OpenStepKey } from "@/lib/app/pipeline";
 import { PUBLIC_THRESHOLD_WEI } from "@/lib/onchain";
-import { POSITION } from "@/lib/constants";
 
 /** Index of a step key in the ordered OPEN_STEPS, for computing which steps are already done. */
 const OPEN_INDEX = new Map(OPEN_STEPS.map((s, i) => [s.key, i] as const));
@@ -43,7 +42,7 @@ export function OpenPosition({ onCreated }: { onCreated: () => void }) {
     } catch {
       return setError("Enter a valid ETH amount.");
     }
-    if (wei < PUBLIC_THRESHOLD_WEI) return setError(`Lock at least ${POSITION.thresholdEth} to clear the threshold.`);
+    if (wei < PUBLIC_THRESHOLD_WEI) return setError("Lock a bit more — this is below the required threshold.");
 
     setBusy(true);
     setStep(OPEN_STEPS[0].key);
@@ -104,7 +103,7 @@ export function OpenPosition({ onCreated }: { onCreated: () => void }) {
             />
             <span className="help">
               You see this number; the Stellar side never will. The proof reveals only{" "}
-              <b>≥ {POSITION.thresholdEth}</b>, never the exact figure or your address.
+              <b>that you cleared the threshold</b>, never the exact figure or your address.
             </span>
           </label>
         </div>
@@ -120,7 +119,22 @@ export function OpenPosition({ onCreated }: { onCreated: () => void }) {
           {!busy && <ArrowRight aria-hidden="true" />}
         </button>
 
-        {busy && <StepList steps={OPEN_STEPS} current={step} done={completed} detail={detail} />}
+        {busy && (
+          <StepList
+            steps={OPEN_STEPS}
+            current={step}
+            done={completed}
+            detail={detail}
+            waitKeys={["attest"]}
+            waitText={
+              <>
+                <b>Waiting for Ethereum to finalize the lock — this can take ~13 minutes.</b>{" "}
+                It&apos;s safe to leave this page; the position resumes exactly where it left off when
+                you return.
+              </>
+            }
+          />
+        )}
 
         {!ready && (
           <Notice tone="info">
