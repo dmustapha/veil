@@ -259,7 +259,16 @@ export async function debtOf(positionId: bigint, source: string): Promise<bigint
   const result = await srv.simulateTransaction(tx);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sim = result as any;
-  if (sim.error) throw new Error(`debt_of simulation failed: ${sim.error}`);
+  if (sim.error) {
+    const raw = String(sim.error);
+    // Vault Error #7 = NoPosition: this position_id was never stored in the CURRENT vault — e.g. the
+    // note was borrowed against an earlier deployment before a redeploy. Tag it so the UI can guide
+    // the user to a fresh position instead of showing a raw HostError.
+    if (/Error\(Contract,\s*#?7\)/.test(raw)) {
+      throw new Error("NO_POSITION: no active loan for this position in the current lending pool");
+    }
+    throw new Error(`debt_of simulation failed: ${raw}`);
+  }
   const retVal = sim.result?.retval;
   if (!retVal) throw new Error("debt_of returned no value");
   return scValToNative(retVal) as bigint;

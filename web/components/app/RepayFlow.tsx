@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Undo2 } from "lucide-react";
+import { Undo2, Trash2 } from "lucide-react";
 import { useWallets } from "./WalletContext";
 import { StepList, Notice } from "./ui";
 import { REPAY_STEPS, runRepayPipeline, type RepayStepKey } from "@/lib/app/pipeline";
-import type { VeilNote } from "@/lib/app/notes";
+import { removeNote, type VeilNote } from "@/lib/app/notes";
 import type { Hex } from "viem";
 
 const REPAY_INDEX = new Map(REPAY_STEPS.map((s, i) => [s.key, i] as const));
@@ -21,6 +21,7 @@ export function RepayFlow({ note, onRepaid }: { note: VeilNote; onRepaid: () => 
   const [error, setError] = useState("");
   const [step, setStep] = useState<RepayStepKey | null>(null);
   const [detail, setDetail] = useState("");
+  const [orphaned, setOrphaned] = useState(false);
 
   const completed = useMemo(() => {
     const i = step ? REPAY_INDEX.get(step) ?? 0 : 0;
@@ -29,6 +30,7 @@ export function RepayFlow({ note, onRepaid }: { note: VeilNote; onRepaid: () => 
 
   const start = async () => {
     setError("");
+    setOrphaned(false);
     if (xlm.status !== "connected" || !xlm.address) {
       return setError("Connect Freighter on Stellar to repay.");
     }
@@ -49,6 +51,8 @@ export function RepayFlow({ note, onRepaid }: { note: VeilNote; onRepaid: () => 
       setStep(null);
       onRepaid();
     } catch (e) {
+      const raw = e instanceof Error ? e.message : "";
+      setOrphaned(/NO_POSITION/.test(raw));
       setError(e instanceof Error ? friendly(e.message) : "The repay failed.");
       setStep(null);
     } finally {
@@ -89,6 +93,18 @@ export function RepayFlow({ note, onRepaid }: { note: VeilNote; onRepaid: () => 
         />
       )}
       {error && <Notice tone="error">{error}</Notice>}
+      {!busy && orphaned && (
+        <button
+          className="btn btn-ghost"
+          type="button"
+          onClick={async () => {
+            await removeNote(note.commitmentAvailable);
+            onRepaid();
+          }}
+        >
+          <Trash2 aria-hidden="true" /> Discard this position
+        </button>
+      )}
       {!busy && (
         <button className="btn btn-primary" type="button" onClick={start}>
           <Undo2 aria-hidden="true" /> Repay &amp; release WETH
@@ -99,6 +115,8 @@ export function RepayFlow({ note, onRepaid }: { note: VeilNote; onRepaid: () => 
 }
 
 function friendly(msg: string): string {
+  if (/NO_POSITION/.test(msg))
+    return "No active loan found for this position in the current lending pool. It was likely opened against an earlier deployment. Discard this one and open a fresh position to repay.";
   if (/Signing was rejected|user rejected|denied/i.test(msg)) return "You rejected the transaction.";
   if (/release not yet confirmed|still in flight|Axelar hop/i.test(msg))
     return "The release is submitted; the Ethereum side takes a few minutes. Reopen to resume.";
