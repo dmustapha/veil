@@ -431,3 +431,8 @@ Axelar gas token (if wiring pay_gas later): native XLM SAC `CDLZFC3SYJYDZT7K67VZ
 - ⚠️ §5.3 format-verify at e2e: forward source_address (Axelar delivers EIP-55 checksummed EVM — matches
   v1 pattern) and reverse trustedSourceAddress (Stellar strkey form) — both are one-time pins; if a form
   mismatch surfaces in Task 15, redeploy the affected side.
+
+## Frontend (reverse-leg) — production deploy 2026-07-03
+- **Live:** https://veilzk.vercel.app (deployment `web-k6nly35tk-damilolas-projects-fafdf859.vercel.app`)
+- Serves the reverse-leg build (RepayFlow + v2 addresses confirmed in bundle: pool CA67KKXW…, VeilEthLockV2
+  0x2C4A669A…, LOCK_V2 CA4XWFDN…, RELEASE CDH7TOPQ…). `.env.local` guarded/intact through deploy.
