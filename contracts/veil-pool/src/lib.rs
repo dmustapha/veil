@@ -94,6 +94,14 @@ enum ConfigKey {
     /// allowed to attest a cross-chain lock. Pinned at construction (safety-critical): a message from
     /// any other source is rejected, so no third party can inject a note.
     EthLockAddr,
+    /// Groth16 verifier for the release_repaid circuit.
+    ReleaseVerifier,
+    /// Axelar gas service (pay_gas) for the outbound reverse leg.
+    AxelarGasService,
+    /// SAC used to prepay outbound Axelar gas (testnet: native XLM SAC).
+    GasToken,
+    /// i128 gas amount prepaid per release (calibrated on testnet).
+    GasBudget,
 }
 
 /// Persistent guard against double-attesting the same Ethereum-backed commitment. Presence means the
@@ -147,6 +155,44 @@ pub trait AxelarGatewayIface {
     ) -> bool;
 }
 
+/// Token used to pay Axelar gas (address + amount) — mirrors stellar_axelar_std::types::Token.
+#[cfg(feature = "contract")]
+#[contracttype]
+#[derive(Clone)]
+pub struct Token {
+    pub address: Address,
+    pub amount: i128,
+}
+
+/// Outbound GMP send. Hand-written ABI-level client (no axelar crate — protocol-level ScVal args).
+#[cfg(feature = "contract")]
+#[contractclient(name = "AxelarGatewayMessagingClient")]
+pub trait AxelarGatewayMessagingIface {
+    fn call_contract(
+        env: Env,
+        caller: Address,
+        destination_chain: String,
+        destination_address: String,
+        payload: Bytes,
+    );
+}
+
+/// Gas prepayment for an outbound call. Hand-written ABI-level client.
+#[cfg(feature = "contract")]
+#[contractclient(name = "AxelarGasServiceClient")]
+pub trait AxelarGasServiceIface {
+    fn pay_gas(
+        env: Env,
+        sender: Address,
+        destination_chain: String,
+        destination_address: String,
+        payload: Bytes,
+        spender: Address,
+        token: Token,
+        metadata: Bytes,
+    );
+}
+
 /// Shielded note pool. Holds the Poseidon2 Merkle tree of note commitments; `deposit` escrows
 /// collateral and inserts a leaf, joinsplits (lock/unlock/seize) spend + mint against it. (Nullifier
 /// set + joinsplit verification wiring land in the following Phase-1/Phase-4 steps.)
@@ -163,6 +209,9 @@ const BN254_R: [u8; 32] = [
     0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
     0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91, 0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x01,
 ];
+/// 2 XLM (7 dp) — recalibrated in Task 8.
+#[cfg(feature = "contract")]
+const DEFAULT_GAS_BUDGET: i128 = 20_000_000;
 
 /// Widen a positive `i128` amount to a BN254 field element (16-byte BE at the low word).
 #[cfg(all(feature = "contract", any(test, feature = "stellar_deposit")))]
@@ -189,6 +238,7 @@ impl VeilPool {
         seize_verifier: Address,
         axelar_gateway: Address,
         source_chain: String,
+        release_verifier: Address,
     ) {
         let s = env.storage().instance();
         s.set(&ConfigKey::Admin, &admin);
@@ -204,6 +254,7 @@ impl VeilPool {
         // unverified origin.
         s.set(&ConfigKey::AxelarGateway, &axelar_gateway);
         s.set(&ConfigKey::SourceChain, &source_chain);
+        s.set(&ConfigKey::ReleaseVerifier, &release_verifier);
         s.extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
         MerkleTreeWithHistory::init(&env, levels).expect("init");
     }
@@ -237,6 +288,28 @@ impl VeilPool {
             "vault already set"
         );
         env.storage().instance().set(&ConfigKey::Vault, &vault);
+        env.storage().instance().extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
+    }
+
+    /// One-time: wire the Axelar gas service + gas token + per-release gas budget for the reverse leg.
+    pub fn set_axelar_outbound(env: Env, gas_service: Address, gas_token: Address, gas_budget: i128) {
+        let admin: Address = env.storage().instance().get(&ConfigKey::Admin).expect("not initialized");
+        admin.require_auth();
+        assert!(!env.storage().instance().has(&ConfigKey::AxelarGasService), "outbound already set");
+        assert!(gas_budget > 0, "gas budget must be positive");
+        let s = env.storage().instance();
+        s.set(&ConfigKey::AxelarGasService, &gas_service);
+        s.set(&ConfigKey::GasToken, &gas_token);
+        s.set(&ConfigKey::GasBudget, &gas_budget);
+        s.extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
+    }
+
+    /// Admin-only: retune the per-release Axelar gas budget after live calibration.
+    pub fn set_gas_budget(env: Env, gas_budget: i128) {
+        let admin: Address = env.storage().instance().get(&ConfigKey::Admin).expect("not initialized");
+        admin.require_auth();
+        assert!(gas_budget > 0, "gas budget must be positive");
+        env.storage().instance().set(&ConfigKey::GasBudget, &gas_budget);
         env.storage().instance().extend_ttl(ttl::BUMP_THRESHOLD, ttl::BUMP_AMOUNT);
     }
 
@@ -630,6 +703,7 @@ mod spend_test {
                 verifier.clone(),
                 Address::generate(&env),
                 String::from_str(&env, "ethereum-sepolia"),
+                Address::generate(&env),
             ),
         );
         let pool = VeilPoolClient::new(&env, &id);
@@ -1055,7 +1129,7 @@ mod deposit_test {
         let coin_admin = token::StellarAssetClient::new(&env, &sac.address());
         coin_admin.mint(&user, &1_000_000i128);
 
-        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia")));
+        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia"), Address::generate(&env)));
         let pool = VeilPoolClient::new(&env, &id);
 
         let amount = 500_000i128;
@@ -1106,7 +1180,7 @@ mod deposit_test {
         let sac = env.register_stellar_asset_contract_v2(issuer);
         token::StellarAssetClient::new(&env, &sac.address())
             .mint(&user, &3_000_000_000_000_000_000i128);
-        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia")));
+        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia"), Address::generate(&env)));
         let pool = VeilPoolClient::new(&env, &id);
 
         pool.deposit(
@@ -1135,7 +1209,7 @@ mod deposit_test {
         let issuer = Address::generate(&env);
         let user = Address::generate(&env);
         let sac = env.register_stellar_asset_contract_v2(issuer);
-        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia")));
+        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia"), Address::generate(&env)));
         let pool = VeilPoolClient::new(&env, &id);
         pool.deposit(&user, &0i128, &U256::from_u32(&env, 2), &U256::from_u32(&env, 1));
     }
@@ -1152,7 +1226,7 @@ mod deposit_test {
         let user = Address::generate(&env);
         let sac = env.register_stellar_asset_contract_v2(issuer);
         token::StellarAssetClient::new(&env, &sac.address()).mint(&user, &1_000i128);
-        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia")));
+        let id = env.register(VeilPool, (Address::generate(&env), sac.address(), 16u32, Address::generate(&env), Address::generate(&env), Address::generate(&env), Address::generate(&env), String::from_str(&env, "ethereum-sepolia"), Address::generate(&env)));
         let pool = VeilPoolClient::new(&env, &id);
 
         let too_big = U256::from_be_bytes(&env, &soroban_sdk::Bytes::from_array(&env, &[0xFFu8; 32]));
@@ -1185,6 +1259,7 @@ mod execute_test {
                 Address::generate(env),
                 gateway,
                 String::from_str(env, SRC_CHAIN),
+                Address::generate(env),
             ),
         );
         let pool = VeilPoolClient::new(env, &id);
@@ -1318,6 +1393,7 @@ mod execute_test {
                 Address::generate(&env),
                 gateway,
                 String::from_str(&env, SRC_CHAIN),
+                Address::generate(&env),
             ),
         );
         let pool = VeilPoolClient::new(&env, &id);
@@ -1331,6 +1407,48 @@ mod execute_test {
         env.mock_all_auths();
         let pool = new_pool(&env, true); // already pins the origin
         pool.set_eth_lock(&s(&env, "0xANOTHER"));
+    }
+}
+
+#[cfg(test)]
+mod outbound_test {
+    use crate::{VeilPool, VeilPoolClient};
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{Address, Env, String};
+
+    /// Mirror of spend_test::setup — deploys pool + returns (env, client, admin, placeholder_addr).
+    fn setup_pool() -> (Env, VeilPoolClient<'static>, Address, Address) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(Address::generate(&env));
+        let gas = Address::generate(&env);
+        let release_verifier = Address::generate(&env);
+        let id = env.register(
+            VeilPool,
+            (
+                admin.clone(),
+                sac.address(),
+                16u32,
+                Address::generate(&env),
+                Address::generate(&env),
+                Address::generate(&env),
+                Address::generate(&env),
+                String::from_str(&env, "ethereum-sepolia"),
+                release_verifier,
+            ),
+        );
+        let client = VeilPoolClient::new(&env, &id);
+        (env, client, admin, gas)
+    }
+
+    #[test]
+    #[should_panic(expected = "outbound already set")]
+    fn set_axelar_outbound_is_one_time() {
+        let (env, client, _admin, gas) = setup_pool();
+        env.mock_all_auths();
+        client.set_axelar_outbound(&gas.clone(), &gas.clone(), &1i128);
+        client.set_axelar_outbound(&gas.clone(), &gas.clone(), &1i128); // panics
     }
 }
 
