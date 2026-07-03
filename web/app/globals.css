@@ -2293,9 +2293,20 @@ h2.app-h2,
   flex: 0 0 auto;
 }
 
+@keyframes spin-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.28;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
+  /* A spinner that "reduces" to a frozen ring reads as a hang. Keep it ALIVE with a
+     non-vestibular opacity pulse instead of killing the animation outright. */
   .spin-lime {
-    animation: none;
+    animation: spin-pulse 1.1s ease-in-out infinite;
   }
   .app-input,
   .seg-btn {
