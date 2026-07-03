@@ -285,9 +285,13 @@ export async function runRepayPipeline(
   if (current.status !== "released") {
     onStep("released");
     const c0 = BigInt(current.commitmentAvailable);
+    let wethReleased = false;
     for (let i = 0; i < 40; i++) {
-      if (await isReleased(c0)) break;
+      if (await isReleased(c0)) { wethReleased = true; break; }
       await new Promise<void>((r) => setTimeout(r, 15_000));
+    }
+    if (!wethReleased) {
+      throw new Error("WETH release not yet confirmed on Ethereum (Axelar hop still in flight). Retry to resume — the release is already submitted, so this only re-polls.");
     }
     current = await applyPatch(current, { status: "released" });
   }
