@@ -1349,11 +1349,30 @@ git commit -m "feat(web): RepayFlow + NoteCard repaid/released lifecycle + copy 
 
 ---
 
-## Task 14: Full testing gate
+## Task 14: Full testing gate — COMPREHENSIVE whole-app sweep
 
-**Files:** none (verification only)
+**Files:** create `TESTING-GATE.md` (records the run + results)
 
-- [ ] **Step 1: Circuits**
+> **User directive (2026-07-03):** this is not just "run the suites" — it is a full test of EVERYTHING implemented from the beginning (deposit, lock, borrow, unlock, seize) AND the new repay-release, so the whole app is proven before the user's hands-on pass and the demo. Every existing feature's suite + prover + on-chain verifier must be exercised, not only the reverse-leg additions. Any red is a BLOCKER — fix or escalate, do not paper over.
+
+- [ ] **Step 0: Whole-app feature inventory (write `TESTING-GATE.md`)**
+
+Enumerate every user-facing feature and its proof-of-life, so nothing is skipped:
+
+| Feature | Unit/suite | Circuit prove→verify | On-chain verifier | Live app path (Task 15) |
+|---|---|---|---|---|
+| Deposit (ETH→Stellar attest) | web `crosschain`/`eth` tests | `deposit_from_eth` | DepositFromEthVerifier (Sepolia) | lock WETH → execute |
+| Lock (AVAILABLE→LOCKED, B1′) | web `lock` tests + `pnpm verify:lock-prover` | `lock` (new B1′) | LOCK_V2_VERIFIER | pool.lock |
+| Borrow | web tests + `pnpm verify:prover` | `borrow` | borrow verifier | vault.borrow |
+| Unlock (LOCKED→AVAILABLE) | veil-pool `unlock` cargo tests + circom `unlock` smoke | `unlock` | unlock verifier | (unit/circuit only — not wired in web v1) |
+| Seize (liquidation, in-pool) | veil-pool `seize` cargo tests + circom `seize` smoke | `seize` | seize verifier | (unit/circuit only) |
+| Repay-release (NEW reverse leg) | web `release` tests + `pnpm verify:release-prover` | `release_repaid` | RELEASE_VERIFIER | repay → release_repaid → Axelar → WETH released |
+
+Record, for each row, the exact command run and PASS/FAIL. Unlock/seize are proven at the circuit + Soroban-verifier level (they are deployed and reused, not part of the v1 web reverse flow) — note that explicitly so their coverage is honest, not silently dropped.
+
+- [ ] **Step 1: Circuits (ALL five — prove→verify each)**
+
+Run prove→verify for `lock`, `release_repaid`, `borrow`, `unlock`, `seize` against their committed VKs (use each circuit's `<c>_input.json` witness + matched disk `<c>.zkey`; borrow/unlock/seize disk zkeys must match their committed VKs — for unlock/seize whose disk zkeys are stale, run the veil-verifier `roundtrip` test instead, which self-verifies the committed fixture). Plus re-confirm the insolvency-attack witness still ABORTS.
 
 ```bash
 cd circom
