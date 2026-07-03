@@ -122,7 +122,11 @@ export function pathForCommitment(
  * not position, so a non-leaf event can't be mis-read. (The bare-U256 branch is a defensive fallback
  * for a single-value data format; the current contract never emits it.)
  */
-const LEAF_EVENTS = new Set(["Deposit", "AttestLock", "Spent"]);
+// Soroban's `#[contractevent]` macro emits the struct name as a SNAKE_CASE topic symbol — the pool's
+// `Deposit`/`AttestLock`/`Spent` structs publish as `deposit`/`attest_lock`/`spent` (verified live on
+// the pool: the only leaf topic emitted is `attest_lock`). Matching the PascalCase struct names here
+// silently rejected every leaf, so the reconstructed tree was always empty.
+const LEAF_EVENTS = new Set(["deposit", "attest_lock", "spent"]);
 
 export function decodeLeafEvent(topics: xdr.ScVal[], data: xdr.ScVal): LeafEvent | null {
   // topic[0] is the event-name symbol; only the three leaf-inserting events can yield a leaf, so a
@@ -171,7 +175,13 @@ export async function fetchLeafEvents(
 ): Promise<LeafEvent[]> {
   const out: LeafEvent[] = [];
   let cursor: string | undefined;
-  for (;;) {
+  // Soroban `getEvents` returns BOUNDED pages — each call scans only a fixed ledger span from its start,
+  // so a short OR empty page does NOT mean "no more events": a recent leaf can sit many spans ahead of
+  // `startLedger`. Follow the cursor forward until it stops advancing (the RPC returns the same cursor
+  // once the tip is reached). The old `break on events.length < pageLimit` bailed on the first empty
+  // span, silently returning an empty/partial tree — which broke every Merkle-path rebuild (attest
+  // detection, borrow, release). The 64-page cap (≈ tens of days of ledgers) is a safety backstop.
+  for (let i = 0; i < 64; i++) {
     const page = await server.getEvents({
       ...(cursor ? { cursor } : { startLedger }),
       filters: [{ type: "contract", contractIds: [poolContractId] }],
@@ -181,9 +191,8 @@ export async function fetchLeafEvents(
       const leaf = decodeLeafEvent(ev.topic, ev.value);
       if (leaf) out.push(leaf);
     }
-    if (page.events.length < pageLimit) break;
+    if (!page.cursor || page.cursor === cursor) break; // tip reached: cursor no longer advances
     cursor = page.cursor;
-    if (!cursor) break;
   }
   return out;
 }

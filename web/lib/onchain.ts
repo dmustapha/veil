@@ -9,6 +9,12 @@ export const SOROBAN_RPC = "https://soroban-testnet.stellar.org";
 export const TESTNET_PASSPHRASE = "Test SDF Network ; September 2015";
 
 export const SEPOLIA_CHAIN_HEX = "0xaa36a7";
+/** Dedicated Sepolia HTTP RPC for READS (balances, allowances, receipts). Reads must NOT go through the
+ *  injected wallet: in browsers with multiple wallet extensions (MetaMask + Backpack + …) `window.ethereum`
+ *  is contested and can reject `eth_call` with -32602. A fixed HTTP endpoint is immune to that. Writes
+ *  still go through the wallet (it holds the key). Override with NEXT_PUBLIC_SEPOLIA_RPC if needed. */
+export const SEPOLIA_RPC =
+  process.env.NEXT_PUBLIC_SEPOLIA_RPC || "https://ethereum-sepolia-rpc.publicnode.com";
 
 // ---- Ethereum (Sepolia) ----
 /** Canonical WETH (real wrapped ETH — `deposit{value}` wraps 1:1, no mint). */

@@ -8,11 +8,11 @@
  * surfaces the Axelar ContractCall log the cross-chain wait (lib/app/axelar.ts) polls on.
  */
 import {
-  createPublicClient, createWalletClient, custom, toEventSelector, type Hex, type Log,
+  createPublicClient, createWalletClient, custom, http, toEventSelector, type Hex, type Log,
 } from "viem";
 import { sepolia } from "viem/chains";
 import {
-  AXELAR_GATEWAY_SEPOLIA, SEPOLIA_CHAIN_HEX, VEIL_ETH_LOCK, WETH_SEPOLIA,
+  AXELAR_GATEWAY_SEPOLIA, SEPOLIA_CHAIN_HEX, SEPOLIA_RPC, VEIL_ETH_LOCK, WETH_SEPOLIA,
 } from "@/lib/onchain";
 import type { EvmProof } from "@/lib/prove/groth16";
 
@@ -20,11 +20,45 @@ type Eip1193 = {
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;
   on?(event: string, handler: (...args: unknown[]) => void): void;
   removeListener?(event: string, handler: (...args: unknown[]) => void): void;
+  isMetaMask?: boolean;
+  isBraveWallet?: boolean;
+  providers?: Eip1193[];
 };
 declare global {
   interface Window {
     ethereum?: Eip1193;
   }
+}
+
+/**
+ * Resolve MetaMask specifically, even when several wallet extensions are installed. In a multi-wallet
+ * browser `window.ethereum` is a contested, getter-only global — whichever extension won the injection
+ * race answers, which may not be the wallet the user connected/switched to Sepolia (this is exactly the
+ * source of the -32602 "invalid parameters" on reads). We discover providers via EIP-6963 and pick
+ * `io.metamask`, falling back to the legacy `providers[]` array, then to `window.ethereum`.
+ */
+type Eip6963 = { info: { rdns: string; name: string }; provider: Eip1193 };
+const announcedProviders: Eip6963[] = [];
+if (typeof window !== "undefined") {
+  window.addEventListener("eip6963:announceProvider", (e: Event) => {
+    const d = (e as CustomEvent<Eip6963>).detail;
+    if (d?.info?.rdns && !announcedProviders.some((p) => p.info.rdns === d.info.rdns)) {
+      announcedProviders.push(d);
+    }
+  });
+  window.dispatchEvent(new Event("eip6963:requestProvider"));
+}
+
+/** The MetaMask EIP-1193 provider, disambiguated from any co-installed wallets. Throws if truly absent. */
+function metaMask(): Eip1193 | undefined {
+  const mm = announcedProviders.find((p) => p.info.rdns === "io.metamask");
+  if (mm) return mm.provider;
+  const eth = typeof window !== "undefined" ? window.ethereum : undefined;
+  if (eth?.providers?.length) {
+    const found = eth.providers.find((p) => p.isMetaMask && !p.isBraveWallet);
+    if (found) return found;
+  }
+  return eth; // last resort: the contested global
 }
 
 const WETH_ABI = [
@@ -53,16 +87,20 @@ export const CONTRACT_CALL_TOPIC = toEventSelector(
 );
 
 export function hasMetaMask(): boolean {
-  return typeof window !== "undefined" && !!window.ethereum;
+  return typeof window !== "undefined" && !!metaMask();
 }
 
 function provider(): Eip1193 {
-  if (!window.ethereum) throw new Error("MetaMask is not installed.");
-  return window.ethereum;
+  const mm = metaMask();
+  if (!mm) throw new Error("MetaMask is not installed.");
+  return mm;
 }
 
+/** Wallet client (signing) — the injected MetaMask provider, which holds the key. */
 const walletClient = () => createWalletClient({ chain: sepolia, transport: custom(provider()) });
-const publicClient = () => createPublicClient({ chain: sepolia, transport: custom(provider()) });
+/** Read client — a fixed Sepolia HTTP RPC, NOT the injected wallet, so reads survive wallet conflicts
+ *  and are independent of whatever chain the wallet is currently on. */
+const publicClient = () => createPublicClient({ chain: sepolia, transport: http(SEPOLIA_RPC) });
 
 export async function readChainId(): Promise<string> {
   return (await provider().request({ method: "eth_chainId" })) as string;

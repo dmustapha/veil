@@ -80,6 +80,22 @@ const numToBig = (path: MerklePath) => ({
 });
 
 /**
+ * Whether the AVAILABLE note commitment `C` is already a leaf in the live pool. True once the deposit
+ * has been executed onto Stellar — by our own `execute` OR by Axelar's relayer, which auto-executes the
+ * forward message because gas is prepaid at lock time. We use this to avoid a duplicate `execute` (the
+ * gateway rejects an already-spent message with `WasmVm/InvalidAction`).
+ */
+async function noteIsInPool(C: bigint): Promise<boolean> {
+  try {
+    const events = await poolLeafEvents();
+    pathForCommitment(events, C); // throws if the commitment is not among the observed leaves
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Drive a freshly-created note through the Ethereum collateral leg and the Axelar attestation into the
  * pool, returning the note in the `attested` state (its AVAILABLE commitment now a pool leaf). Wraps /
  * approves only what the live balances lack, and skips the lock / attest / execute if already done.
@@ -126,16 +142,35 @@ export async function runOpenPipeline(
   // 5. Wait for Axelar to approve the message on the Soroban gateway, then execute it into the pool.
   if (current.status !== "attested" && current.status !== "locked-note" && current.status !== "borrowed") {
     if (!current.lockTxEth) throw new Error("missing Ethereum lock tx — re-run the lock step");
-    onStep("attest");
-    const msg = await waitForAxelarApproval(current.lockTxEth, {
-      onUpdate: (m: AxelarMessage) => onStep("attest", axelarDetail(m)),
-    });
-    if (!msg.messageId || !msg.sourceAddress || !msg.sourceChain) {
-      throw new Error("Axelar approved the message but omitted its id/source — cannot execute");
+
+    // Fast path: Axelar prepays gas at lock, so its relayer often auto-executes the deposit onto Stellar
+    // before (or instead of) us. If the note leaf is already in the pool, the attestation is DONE —
+    // adopt it and skip the wait + our own execute (which would be a rejected duplicate). Also the
+    // correct resume path after a prior execute that landed on-chain but never got persisted.
+    if (await noteIsInPool(C)) {
+      current = await applyPatch(current, { status: "attested" });
+    } else {
+      onStep("attest");
+      const msg = await waitForAxelarApproval(current.lockTxEth, {
+        onUpdate: (m: AxelarMessage) => onStep("attest", axelarDetail(m)),
+      });
+      if (!msg.messageId || !msg.sourceAddress || !msg.sourceChain) {
+        throw new Error("Axelar approved the message but omitted its id/source — cannot execute");
+      }
+      onStep("execute");
+      try {
+        const executeTx = await execute(msg.sourceChain, msg.messageId, msg.sourceAddress, C, amount, xlmAddress);
+        current = await applyPatch(current, { status: "attested", executeTx });
+      } catch (err) {
+        // Lost the race: Axelar's relayer executed the same message between our check and our call, so
+        // the gateway rejected ours (WasmVm/InvalidAction). If the leaf is now in the pool, that's success.
+        if (await noteIsInPool(C)) {
+          current = await applyPatch(current, { status: "attested" });
+        } else {
+          throw err;
+        }
+      }
     }
-    onStep("execute");
-    const executeTx = await execute(msg.sourceChain, msg.messageId, msg.sourceAddress, C, amount, xlmAddress);
-    current = await applyPatch(current, { status: "attested", executeTx });
   }
 
   return current;

@@ -5,11 +5,12 @@ Everything below is deployed, wired, and verified on-chain; this proves the roun
 
 **App:** https://veilzk.vercel.app
 
-## Live addresses (v2)
-- veil-pool: `CA67KKXWF2HMI5YYOVSISB242QDYS5TTPAQBVJBNYTRCYROA3ETKMWUB`
-- VeilEthLockV2 (Sepolia): `0x2C4A669AD2f5Aeb1Ab91681022D1924DBED6f4AC`
-- veil-vault (reused): `CCXGKWB5BQFPIJFARYYIB4FBQPLHGFBVANWHFODMQDRHPF2E3K6DCNKF`
-- Verifiers: LOCK_V2 `CA4XWFDN…A4TE`, RELEASE `CDH7TOPQ…GLCB`
+## Live addresses (matched triple — P2/V2/E3, verified on-chain 2026-07-03)
+- veil-pool **P2**: `CA7H5WQISBIWVEWXRBTGHSB3UMEFK7RR4QJHYGAMZVEV7NSW3MFJLHLN`
+- veil-vault **V2**: `CAXOQQ7V4ZDI5TO5SJQQLGXHMWATL3VXXG5YBZJ33SCR7IJ3C7JRYBPT` (veil_pool=P2, LP 2 USDC)
+- VeilEthLockV2 **E3** (Sepolia): `0x06bB519A490030DE251EeB83818F875Cc87002e0` (trustedSource=P2, chain=stellar-2026-q1-2)
+- Verifiers: LOCK_V2 `CA4XWFDN…A4TE`, RELEASE `CDH7TOPQ…GLCB`, UNLOCK `CBXNZD5E…SEZ4U`, SEIZE `CBLRFQ6S…WES4`, borrow `CBTSWUY5…DMM2`
+- ⚠️ ABANDONED (mis-bound, do NOT use): pool `CA67KKXW…`, ethlock `0x2C4A669A…`, vault `CCXGKWB5…`
 
 ## Wallet setup (both required)
 - **Freighter** on **Stellar testnet** — signs the Soroban txs (execute attest, lock-note, borrow, repay, release). Fund with testnet XLM (friendbot).
