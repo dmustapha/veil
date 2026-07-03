@@ -5,6 +5,7 @@ include "merkle_proof.circom";
 include "nullifier.circom";
 include "domain_hash.circom";
 include "circomlib/circuits/bitify.circom";
+include "poseidon2/poseidon2_hash.circom";
 
 // Veil v3 LOCK joinsplit — client-side-provable port of guest/core/src/notes.rs::verify_lock.
 //
@@ -29,6 +30,7 @@ template Lock(levels) {
     signal input leafIndex;
     signal input pathElements[levels];
     signal input blindingOut;
+    signal input r; // B1' binding random: lockId = Poseidon2(C0, r)
     // --- public outputs ---
     signal output nullifierOut;
     signal output commitmentOut;
@@ -65,6 +67,14 @@ template Lock(levels) {
     nf.commitment <== cin.out;
     nf.leafIndex  <== leafIndex;
     nullifierOut  <== nf.out;
+
+    // B1' — bind the Ethereum escrow key C0 into lockId (hiding: r secret random).
+    // Necessary for reverse-leg solvency (release_repaid re-proves this exact binding).
+    component lockBind = Poseidon2(2);
+    lockBind.inputs[0] <== cin.out;
+    lockBind.inputs[1] <== r;
+    lockBind.domainSeparation <== 53; // DS_LOCKBIND = 0x35
+    lockId === lockBind.out;
 
     // 4. Mint the LOCKED output note of the SAME amount (value conserved), bound to lockId.
     component cout = NoteCommitment();
