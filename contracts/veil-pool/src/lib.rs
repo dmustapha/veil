@@ -605,12 +605,14 @@ impl VeilPool {
     /// EthLockAddr = the VeilEthLock string). A trap here reverts the caller's nullifier spend.
     fn emit_release(env: &Env, c0: &U256, recipient: &BytesN<20>) {
         let s = env.storage().instance();
+        // Gateway + destination are REQUIRED — `call_contract` is the atomicity anchor (if it traps,
+        // the whole tx incl. the nullifier spend reverts). Gas prepayment is OPTIONAL: when the Axelar
+        // gas service is configured we prepay so the reverse hop auto-executes; when it is not (v1
+        // default) the message is still emitted and executed via Axelarscan manual add-gas (spec §5.4).
+        // This decouples release from the gas-service address + auth calibration.
         let gateway: Address = s.get(&ConfigKey::AxelarGateway).expect("gateway unset");
-        let gas_service: Address = s.get(&ConfigKey::AxelarGasService).expect("gas service unset");
-        let gas_token: Address = s.get(&ConfigKey::GasToken).expect("gas token unset");
         let dest_chain: String = s.get(&ConfigKey::SourceChain).expect("dest chain unset");
         let dest_addr: String = s.get(&ConfigKey::EthLockAddr).expect("dest addr unset");
-        let budget: i128 = s.get(&ConfigKey::GasBudget).expect("gas budget unset");
 
         // payload = abi.encode(uint256 C0, address recipient) → 64 bytes
         // [0..32] = C0 BE  [32..44] = zero pad  [44..64] = address
@@ -621,30 +623,37 @@ impl VeilPool {
 
         let me = env.current_contract_address();
 
-        // Prepay gas from the pool's own gas-token balance. The gas service pulls the token from
-        // `sender`, so authorize that transfer as the current contract (calibrated in Task 8).
-        env.authorize_as_current_contract(soroban_sdk::vec![
-            env,
-            soroban_sdk::auth::InvokerContractAuthEntry::Contract(
-                soroban_sdk::auth::SubContractInvocation {
-                    context: soroban_sdk::auth::ContractContext {
-                        contract: gas_token.clone(),
-                        fn_name: soroban_sdk::Symbol::new(env, "transfer"),
-                        args: (me.clone(), gas_service.clone(), budget).into_val(env),
+        // OPTIONAL gas prepayment — only when gas service + token + budget are all configured.
+        if let (Some(gas_service), Some(gas_token), Some(budget)) = (
+            s.get::<_, Address>(&ConfigKey::AxelarGasService),
+            s.get::<_, Address>(&ConfigKey::GasToken),
+            s.get::<_, i128>(&ConfigKey::GasBudget),
+        ) {
+            // The gas service pulls the token from `sender`, so authorize that transfer as the
+            // current contract (exact args calibrated live in Task 8).
+            env.authorize_as_current_contract(soroban_sdk::vec![
+                env,
+                soroban_sdk::auth::InvokerContractAuthEntry::Contract(
+                    soroban_sdk::auth::SubContractInvocation {
+                        context: soroban_sdk::auth::ContractContext {
+                            contract: gas_token.clone(),
+                            fn_name: soroban_sdk::Symbol::new(env, "transfer"),
+                            args: (me.clone(), gas_service.clone(), budget).into_val(env),
+                        },
+                        sub_invocations: soroban_sdk::vec![env],
                     },
-                    sub_invocations: soroban_sdk::vec![env],
-                },
-            ),
-        ]);
-        AxelarGasServiceClient::new(env, &gas_service).pay_gas(
-            &me,
-            &dest_chain,
-            &dest_addr,
-            &payload,
-            &me,
-            &Token { address: gas_token, amount: budget },
-            &Bytes::new(env),
-        );
+                ),
+            ]);
+            AxelarGasServiceClient::new(env, &gas_service).pay_gas(
+                &me,
+                &dest_chain,
+                &dest_addr,
+                &payload,
+                &me,
+                &Token { address: gas_token, amount: budget },
+                &Bytes::new(env),
+            );
+        }
 
         // Send the GMP message. The pool is the DIRECT caller, so call_contract's
         // caller.require_auth() is auto-satisfied — no authorize_as_current_contract needed.
