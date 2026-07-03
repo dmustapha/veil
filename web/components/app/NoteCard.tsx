@@ -4,6 +4,7 @@ import { formatEther } from "viem";
 import { FrostedVeil } from "@/components/FrostedVeil";
 import { BorrowFlow } from "./BorrowFlow";
 import { ContinueOpen } from "./ContinueOpen";
+import { RepayFlow } from "./RepayFlow";
 import { UseUsdc } from "./UseUsdc";
 import { TxLink } from "./ui";
 import { truncate, ethTxUrl, stellarTxUrl } from "@/lib/app/format";
@@ -57,6 +58,15 @@ export function NoteCard({ note, onChanged }: { note: VeilNote; onChanged: () =>
           {note.borrowTx && (
             <Fact k="Borrow tx" v={<TxLink href={stellarTxUrl(note.borrowTx)} label={truncate(note.borrowTx)} />} />
           )}
+          {note.repayTx && (
+            <Fact k="Repay tx" v={<TxLink href={stellarTxUrl(note.repayTx)} label={truncate(note.repayTx)} />} />
+          )}
+          {note.releaseTx && (
+            <Fact k="Release tx" v={<TxLink href={stellarTxUrl(note.releaseTx)} label={truncate(note.releaseTx)} />} />
+          )}
+          {note.releaseEthTx && (
+            <Fact k="WETH release tx" v={<TxLink href={ethTxUrl(note.releaseEthTx)} label={truncate(note.releaseEthTx)} />} />
+          )}
         </div>
 
         <div className="pos-actions">
@@ -69,7 +79,14 @@ export function NoteCard({ note, onChanged }: { note: VeilNote; onChanged: () =>
               <div className="pos-divider" />
               <div className="pos-sub-title">Use your USDC on Stellar</div>
               <UseUsdc />
+              <div className="pos-divider" />
+              <RepayFlow note={note} onRepaid={onChanged} />
             </>
+          )}
+          {note.status === "released" && (
+            <div className="pos-terminal">
+              WETH returned to Ethereum
+            </div>
           )}
         </div>
       </div>

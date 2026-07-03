@@ -83,8 +83,9 @@ const FLOW = [
       <>
         Your borrowed USDC is real Circle USDC you can use across Stellar. Your
         WETH stays locked on Ethereum, backing the loan — it never bridges.{" "}
-        <b>Repay-to-unlock and default-to-claim for the real-ETH leg are the next
-        milestone</b>, not yet wired.
+        Repay on Stellar and the pool releases your WETH back to your Ethereum
+        address, verified by a shielded release proof.{" "}
+        <span className="future">The shielded WETH pool and liquidation-release</span> are the next milestone.
       </>
     ),
   },
@@ -179,9 +180,9 @@ const TRUST = [
     name: "The loan term",
     desc: (
       <>
-        The vault carries a loan term and liquidation threshold. Wiring the
-        Ethereum-side reclaim to enforce them is the{" "}
-        <span className="future">next milestone</span>.
+        The vault carries a loan term and liquidation threshold. Repay-to-release
+        is live; wiring default-to-claim enforcement into the shielded WETH pool
+        is the <span className="future">next milestone</span>.
       </>
     ),
   },

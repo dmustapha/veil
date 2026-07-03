@@ -1944,6 +1944,9 @@ h2.app-h2,
 .pos-pill.repaid {
   color: var(--platinum-dim);
 }
+.pos-pill.released {
+  color: var(--emerald, #34d399);
+}
 .pos-pill.defaulted {
   color: var(--red-bright);
   border-color: rgba(255, 86, 76, 0.4);
