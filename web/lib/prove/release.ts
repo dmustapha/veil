@@ -102,6 +102,9 @@ export function buildReleaseWitness(
   ] as const) {
     if (val < 0n || val >= BN254_R) throw new Error(`${name} is not a canonical BN254 field element`);
   }
+  // Symmetry with buildLockWitness: r=0 would degenerate the C0-binding (lockId = Poseidon2(C0, 0)).
+  // A genuine note's r is CSPRNG-drawn and never 0; reject it defensively at this public API too.
+  if (note.r === 0n) throw new Error("r must be non-zero");
   return {
     C0: note.C0.toString(),
     recipient: recipientField.toString(),
