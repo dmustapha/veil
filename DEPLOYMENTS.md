@@ -389,3 +389,30 @@ Both deployed via `veil-spike` on Stellar testnet.
 - release deploy tx (instantiate): `82b4ca30e5fa4441613662819815bb3dbddcae13e49539d3badd4daae5a82c5d`
 - VKs: `circom/keys/lock.vk.json` (B1′) and `circom/keys/release_repaid.vk.json`
 - All 7 cargo roundtrip tests pass (incl. new `release_repaid_proof_verifies_on_soroban`)
+
+---
+
+## Veil v3 — Reverse-leg redeploy (repay-release, 2026-07-03) — admin `veil-spike`
+
+Fresh pool + 4 verifiers for the reverse leg (B1′ lock binding + `release_repaid`). The LIVE Phase-7
+pool/verifiers/VeilEthLock are LEFT UNTOUCHED as the proven forward-leg artifact; the reverse e2e
+re-locks on this new pool (fresh e2e, per U10).
+
+**Groth16 verifiers (Soroban testnet):**
+- `LOCK_V2_VERIFIER` (B1′ lock circuit): `CA4XWFDN4BDKRDVJ43IQLFQ6IGMU477OAEQXBYFCX2NQ7JWVJHE5A4TE` (wasm 294de062…)
+- `RELEASE_VERIFIER` (release_repaid): `CDH7TOPQL2X3UW6SQNGRSOAOKLRI2QNQU6A3VDHJR2JQDNWMCSS2GLCB` (wasm 1aabd468…)
+- `UNLOCK_VERIFIER` (fresh, from committed unlock.vk.json): `CBXNZD5EYROICZQYZ7KOJUVR6M4XWIWMBSJAFSTUUSWZIH4JHLJSEZ4U` (wasm a2fd9cbb…)
+- `SEIZE_VERIFIER` (fresh, from committed seize.vk.json): `CBLRFQ6S43S4QZCGWT2NVFVAGL6OKCDKEL353JKKEB2MHUPTMJRPWES4` (wasm c73bb85b…)
+
+**veil-pool v2 (reverse leg):** `CA67KKXWF2HMI5YYOVSISB242QDYS5TTPAQBVJBNYTRCYROA3ETKMWUB` (wasm a41f6af3…, 49398 bytes)
+- constructor: admin `veil-spike`, token USDC_SAC `CBIELTK6…DAMA` (inert — cross-chain collateral is
+  Ethereum WETH), levels 16, lock/unlock/seize/release verifiers above, axelar_gateway
+  `CB2JYOOZ…IQPIAYY3`, source_chain `ethereum-sepolia` (Axelar's Sepolia id; also the OUTBOUND dest).
+- `set_vault(CCXGKWB5…CNKF)` (reuses the existing funded vault) tx `96c9416777c42521b08b872ddf657b5f7cf19432cff041dc6c5909b2f98247b3`
+- `set_eth_lock` = DEFERRED to Task 8 (after VeilEthLock v2 deploy — it is the pinned outbound dest).
+- `set_axelar_outbound` = SKIPPED (v1): pay_gas is optional; the reverse hop is emitted by
+  `call_contract` and executed via Axelarscan manual add-gas (spec §5.4). Gas prepayment can be
+  wired later via `set_axelar_outbound` once the Stellar gas service + auth are calibrated.
+
+Stellar Amplifier chain name (for VeilEthLock v2 trusted source, Task 8): `stellar-2026-q1-2` (re-verify).
+Axelar gas token (if wiring pay_gas later): native XLM SAC `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC`.
