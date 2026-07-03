@@ -62,13 +62,13 @@ describe("createNote", () => {
 
   it("derives lockId = Poseidon2(C0, r, 0x35) — B1′ binding", () => {
     const note = createNote(1000n);
-    const expected = hash2(BigInt(note.commitmentAvailable), BigInt(note.r), 0x35n);
+    const expected = hash2(BigInt(note.commitmentAvailable), BigInt(note.r!), 0x35n);
     expect(BigInt(note.lockId)).toBe(expected);
   });
 
   it("r is a non-zero canonical field element", () => {
     const note = createNote(1000n);
-    const r = BigInt(note.r);
+    const r = BigInt(note.r!);
     expect(r).toBeGreaterThan(0n);
     expect(r).toBeLessThan(P);
   });
@@ -87,7 +87,7 @@ describe("witness converters", () => {
 
   it("toLockNote passes r through for the B1′ circuit constraint", () => {
     const l = toLockNote(n);
-    expect(l.r).toBe(BigInt(n.r));
+    expect(l.r).toBe(BigInt(n.r!));
     // The circuit will enforce lockId = hash2(C0, r, 0x35); verify that binding holds in the adapter too.
     expect(hash2(BigInt(n.commitmentAvailable), l.r, 0x35n)).toBe(l.lockId);
   });
@@ -106,7 +106,15 @@ describe("witness converters", () => {
     expect(rel.spendPk).toBe(BigInt(n.spendPk));
     expect(rel.nk).toBe(BigInt(n.nk));
     expect(rel.lockId).toBe(BigInt(n.lockId));
-    expect(rel.r).toBe(BigInt(n.r));
+    expect(rel.r).toBe(BigInt(n.r!));
+  });
+
+  it("toLockNote throws a clear error for pre-B1′ notes missing r (backward-compat guard)", () => {
+    const base = createNote(1234n);
+    const { r: _r, ...noteWithoutR } = base as Required<typeof base>;
+    expect(() => toLockNote(noteWithoutR as typeof base)).toThrow(
+      /predates the B1′ collateral-binding upgrade/,
+    );
   });
 });
 

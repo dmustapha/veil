@@ -63,6 +63,7 @@ export function buildLockWitness(note: LockNote, path: LockMerklePath): LockWitn
   if (note.amount < 0n || note.amount >= MAX_U128) {
     throw new Error("amount must be in [0, 2^128)");
   }
+  if (note.r === 0n) throw new Error("r must be non-zero");
   for (const [name, val] of [
     ["blindingIn", note.blindingIn], ["spendPk", note.spendPk], ["nk", note.nk],
     ["lockId", note.lockId], ["blindingOut", note.blindingOut], ["r", note.r], ["root", path.root],

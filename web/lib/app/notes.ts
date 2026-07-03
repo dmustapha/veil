@@ -54,7 +54,7 @@ export interface VeilNote {
   blindingIn: string; // AVAILABLE-note blinding
   blindingOut: string; // LOCKED-note blinding (fresh, distinct)
   loanSecret: string; // → positionId at borrow
-  r: string; // B1′ binding random: lockId = Poseidon2(C0, r, DS_LOCKBIND=0x35)
+  r?: string; // B1′ binding random: lockId = Poseidon2(C0, r, DS_LOCKBIND=0x35) — optional for pre-B1′ notes
   lockId: string; // → lockHandle; the LOCKED note's aux (derived from C0 + r, NOT random)
   // --- public identities ---
   commitmentAvailable: string; // NoteCommitment(0x10, amount, spendPk, blindingIn, 0)
@@ -105,6 +105,7 @@ export function createNote(amountWei: bigint): VeilNote {
 
 /** The AVAILABLE-note opening as the lock circuit's private witness (bigints). */
 export function toLockNote(n: VeilNote): LockNote {
+  if (!n.r) throw new Error("This note predates the B1′ collateral-binding upgrade and can no longer be locked/released — please create a new note.");
   return {
     amount: BigInt(n.amount),
     blindingIn: BigInt(n.blindingIn),
@@ -131,6 +132,7 @@ export interface ReleaseNote {
 }
 
 export function toReleaseNote(n: VeilNote): ReleaseNote {
+  if (!n.r) throw new Error("This note predates the B1′ collateral-binding upgrade and can no longer be locked/released — please create a new note.");
   return {
     amount: BigInt(n.amount),
     blindingOut: BigInt(n.blindingOut),
