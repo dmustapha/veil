@@ -436,3 +436,16 @@ Axelar gas token (if wiring pay_gas later): native XLM SAC `CDLZFC3SYJYDZT7K67VZ
 - **Live:** https://veilzk.vercel.app (deployment `web-k6nly35tk-damilolas-projects-fafdf859.vercel.app`)
 - Serves the reverse-leg build (RepayFlow + v2 addresses confirmed in bundle: pool CA67KKXW…, VeilEthLockV2
   0x2C4A669A…, LOCK_V2 CA4XWFDN…, RELEASE CDH7TOPQ…). `.env.local` guarded/intact through deploy.
+
+## ⚠️ MATCHED REDEPLOY (2026-07-03) — fixes vault-reuse showstopper
+Deep review found: `vault.borrow` cross-calls `veil_pool.is_known_root(root)` and `veil_pool` is
+constructor-only. The reused vault CCXGKWB5 was bound to the OLD pool, so borrowing against the new
+pool's root would revert `UnknownRoot` → forward leg broken. Since the pool's one-time `set_vault` was
+already consumed, the fix is a matched fresh triple (no code changes):
+- **veil-pool P2:** `CA7H5WQISBIWVEWXRBTGHSB3UMEFK7RR4QJHYGAMZVEV7NSW3MFJLHLN` (same verifiers/gateway/source_chain)
+- **veil-vault V2:** `CAXOQQ7V4ZDI5TO5SJQQLGXHMWATL3VXXG5YBZJ33SCR7IJ3C7JRYBPT` (veil_pool=P2; ltv 7000/liq 8000/min_threshold 1e11/term 500000/rate 500; borrow_verifier CBTSWUY5; usdc CBIELTK6; reflector CCYOZJCO Other(ETH); LP 2 USDC funded)
+- **VeilEthLock E3 (Sepolia):** `0x06bB519A490030DE251EeB83818F875Cc87002e0` (deploy tx `0xb9976de3d645273aea6e9e3616ec4b7e1b6f91a2ac4e5a724fc1d95f5ae5d982`)
+- Wiring: P2.set_vault(V2); P2.set_eth_lock(E3); E3.setTrustedSource+setDestination(stellar-2026-q1-2, P2).
+- Web onchain.ts repointed → P2/V2/E3; frontend redeployed to veilzk.vercel.app.
+- SUPERSEDES the earlier CA67KKXW / CCXGKWB5 / 0x2C4A669A set (those are abandoned; CA67KKXW's set_vault
+  is mis-bound and unusable).
