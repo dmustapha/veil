@@ -12,6 +12,7 @@
     "gen:poseidon": "node scripts/gen-poseidon-constants.mjs",
     "verify:prover": "tsx scripts/verify-borrow-prover.ts",
     "verify:lock-prover": "tsx scripts/verify-lock-prover.ts",
+    "verify:release-prover": "tsx scripts/verify-release-prover.ts",
     "verify:deposit-prover": "tsx scripts/verify-deposit-prover.ts",
     "check:ethlock": "tsx scripts/check-ethlock.ts",
     "check:axelar": "tsx scripts/check-axelar.ts",

@@ -7,6 +7,7 @@
 // the Phase-3 on-chain cross-check (G1 = x||y 64B BE; G2 = x.c1||x.c0||y.c1||y.c0 128B BE; Fr 32B BE).
 import type { BorrowWitness } from "./witness";
 import type { LockWitness } from "./lock";
+import type { ReleaseWitness } from "./release";
 
 /** Raw snarkjs Groth16 proof (BN254, projective triples). */
 export interface SnarkProof {
@@ -231,4 +232,48 @@ export function publicSignalsToBorrowArgs(publicSignals: string[]): BorrowPublic
  */
 export function publicSignalsToU256(publicSignals: string[]): bigint[] {
   return publicSignals.map((s) => BigInt(s));
+}
+
+const RELEASE_ASSETS: ProverAssets = {
+  wasm: "/circuits/release_repaid/release_repaid.wasm",
+  zkey: "/circuits/release_repaid/release_repaid.zkey",
+};
+
+/**
+ * Prove a release_repaid statement client-side. `publicSignals` is the snarkjs release order:
+ * [nullifierOut, C0, recipient, rootPool, rootRepaid].
+ */
+export async function proveRelease(
+  witness: ReleaseWitness,
+  assets: ProverAssets = RELEASE_ASSETS,
+): Promise<BorrowProof> {
+  const snarkjs = await import("snarkjs");
+  const input = witness as unknown as Record<string, string | string[]>;
+  const { proof, publicSignals } = await snarkjs.groth16.fullProve(input, assets.wasm, assets.zkey);
+  return { proof: proof as unknown as SnarkProof, publicSignals: publicSignals as string[] };
+}
+
+/** The release public signals, decoded and named (snarkjs emits outputs first). */
+export interface ReleasePublicArgs {
+  nullifier: bigint;
+  c0: bigint;
+  recipient: bigint;
+  rootPool: bigint;
+  rootRepaid: bigint;
+}
+
+/**
+ * Split snarkjs `publicSignals` into the named release public inputs.
+ * Public signal order: [nullifierOut, C0, recipient, rootPool, rootRepaid].
+ */
+// public order: [nullifierOut, C0, recipient, rootPool, rootRepaid]
+export function publicSignalsToReleaseArgs(sig: string[]): ReleasePublicArgs {
+  if (sig.length !== 5) throw new Error(`release: expected 5 public signals, got ${sig.length}`);
+  return {
+    nullifier: BigInt(sig[0]),
+    c0: BigInt(sig[1]),
+    recipient: BigInt(sig[2]),
+    rootPool: BigInt(sig[3]),
+    rootRepaid: BigInt(sig[4]),
+  };
 }
