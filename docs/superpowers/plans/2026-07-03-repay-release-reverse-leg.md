@@ -1349,6 +1349,49 @@ git commit -m "feat(web): RepayFlow + NoteCard repaid/released lifecycle + copy 
 
 ---
 
+## Task 13.5: Deploy the frontend to production (with live v2 addresses)
+
+**User directive (2026-07-03):** the comprehensive testing gate must test the DEPLOYED app, not just localhost — so the frontend must be built and pushed to production with all v2 changes FIRST.
+
+**Files:** none new (deploy artifacts)
+
+**Interfaces:**
+- Consumes: the completed web changes (Tasks 9–13), the live v2 addresses in `web/lib/onchain.ts` (Task 11).
+- Produces: a live production URL serving the reverse-leg app pointed at the v2 pool/verifier/VeilEthLock.
+
+- [ ] **Step 1: Confirm the local build is green + addresses are v2**
+
+```bash
+cd web && pnpm typecheck && pnpm build
+grep -E "VEIL_POOL|VEIL_RELEASE_VERIFIER|VEIL_ETH_LOCK|VEIL_LOCK_VERIFIER" lib/onchain.ts
+```
+
+Expected: build PASS; the printed constants are the NEW v2 addresses (pool `<POOL_V2_ID>`, `VEIL_RELEASE_VERIFIER`, VeilEthLock v2, lock-v2 verifier) — not the stale ones.
+
+- [ ] **Step 2: Guard the Vercel `.env.local` clobber, then deploy**
+
+> ⚠️ Known hazard: `vercel link`/`vercel env pull` can overwrite `web/.env.local` and wipe keys. BEFORE any vercel command: back up `web/.env.local` (`cp web/.env.local /tmp/veil.env.local.bak`), run the deploy, then restore/verify it. Never let a vercel command silently rewrite it.
+
+```bash
+cp web/.env.local /tmp/veil.env.local.bak
+cd web && vercel --prod   # or the project's existing deploy command / deploy-to-github skill
+diff /tmp/veil.env.local.bak web/.env.local || cp /tmp/veil.env.local.bak web/.env.local
+```
+
+Expected: a production URL is printed; `.env.local` unchanged (or restored).
+
+- [ ] **Step 3: Smoke the deployed URL**
+
+Load the production URL, confirm it serves the reverse-leg build (RepayFlow present, wallet-connect for Freighter + MetaMask works, note lifecycle shows repaid/released states). Record the URL in `DEPLOYMENTS.md`.
+
+- [ ] **Step 4: Commit any deploy-config changes**
+
+```bash
+git add -A && git commit -m "chore(web): deploy reverse-leg frontend to production" --allow-empty
+```
+
+---
+
 ## Task 14: Full testing gate — COMPREHENSIVE whole-app sweep
 
 **Files:** create `TESTING-GATE.md` (records the run + results)
