@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Veil — DoraHacks Details (paste-ready)</title>
+<style>
+  body { max-width: 820px; margin: 40px auto; padding: 0 24px 80px;
+         font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         color: #1a1a1a; background: #ffffff; }
+  .note { background: #f4f7ff; border: 1px solid #d5e0ff; border-radius: 10px;
+          padding: 12px 16px; font-size: 14px; color: #33415c; margin-bottom: 28px; }
+  h2 { font-size: 20px; margin: 30px 0 10px; padding-top: 6px; border-top: 1px solid #eee; }
+  p { margin: 10px 0; }
+  ul { margin: 10px 0; padding-left: 22px; }
+  li { margin: 6px 0; }
+  code { background: #f2f2f4; padding: 2px 6px; border-radius: 5px;
+         font: 13px "SF Mono", ui-monospace, Menlo, monospace; word-break: break-all; }
+  a { color: #2a5bd7; }
+  .hook { font-size: 18px; }
+</style>
+</head>
+<body>
+
+<div class="note">Click anywhere on this page, then <strong>Cmd+A</strong> → <strong>Cmd+C</strong> → paste into the DoraHacks Details box. The styled paste keeps the bold headings, labels, and lists. This blue note is not part of the copy, the editor ignores it.</div>
+
+<p class="hook"><strong>Keep your ETH on Ethereum. Get working USDC on Stellar. Veil moves the proof, never the collateral, and reveals neither your amount nor your wallet.</strong></p>
+
+<p><em>Stellar hackathon, Real-World ZK track.</em></p>
+
+<h2>The Problem</h2>
+<p>You hold ETH on Ethereum, and you want to put it to work on Stellar, where Circle USDC and the fast, low-cost rails live. Getting there today means moving your ETH across chains or selling it, and either way you give up the position you meant to keep, whether you are long ETH, holding it in cold custody, or already earning on it in Ethereum DeFi.</p>
+<p>The usual way to avoid that, borrowing against your ETH instead of selling it, works on Ethereum but leaks everything. Overcollateralized lending on a public chain lets anyone read the exact collateral you lock, the size of your loan, and the wallet that ties it all back to you. For anyone managing real size, that is a standing liability: front-running, targeting, and a permanent public record of every position you hold. So today you are stuck choosing: keep your ETH where it is or reach liquidity on Stellar, and take the loan or keep it private.</p>
+
+<h2>The Solution</h2>
+<p>Veil unlocks Stellar liquidity from your Ethereum ETH without moving it. You lock real ETH on Ethereum and borrow real USDC on Stellar against it. The collateral never bridges: only a commitment, an amount, and a zero-knowledge proof cross between chains, so you keep custody of your ETH on Ethereum while you operate with USDC on Stellar. That same proof, generated in your browser and verified natively on Stellar, attests that your hidden collateral clears the required threshold, so your amount and your identity stay private. The key technical claim: no relayer and no committee decides whether you can borrow. A Groth16 proof, verified on-chain, is the only thing Stellar trusts.</p>
+
+<h2>How It Works</h2>
+<ul>
+  <li><strong>1. Lock collateral on Ethereum.</strong> You escrow real WETH in <code>VeilEthLock</code>, bound to a note commitment, with a client-side proof that attests the deposit opening on-device.</li>
+  <li><strong>2. Attest across chains with Axelar.</strong> <code>VeilEthLock</code> emits an Axelar GMP message carrying <code>(commitment, amount)</code>. Axelar's validator set confirms the Ethereum lock and delivers it to the Soroban pool, which mints a shielded note.</li>
+  <li><strong>3. Prove and borrow privately.</strong> In the browser you generate a Groth16 proof that your hidden collateral clears the threshold, then call <code>veil-vault.borrow</code>. The vault verifies the proof natively (BN254 on Soroban) and disburses real Circle USDC.</li>
+  <li><strong>4. Repay and reclaim.</strong> Repay the USDC on Stellar, prove <code>release_repaid</code>, and your real WETH unlocks back on Ethereum. Only the proof crosses. The collateral never left Ethereum.</li>
+</ul>
+
+<h2>Key Features</h2>
+<ul>
+  <li><strong>Client-side zero-knowledge proving:</strong> every proof is generated on your device in seconds. Your amount and your address never leave the browser.</li>
+  <li><strong>Native on-chain verification:</strong> Groth16 over BN254, verified inside Soroban (Protocol 27). No trusted verifier service sits in the path.</li>
+  <li><strong>Collateral that never bridges:</strong> real ETH stays on Ethereum. Only a commitment, an amount, and a proof cross via Axelar GMP.</li>
+  <li><strong>Selective disclosure:</strong> Stellar learns only that you cleared a threshold, never how much you hold or which wallet is yours.</li>
+  <li><strong>Solvency enforced by math:</strong> a forged or replayed proof fails BN254 verification on-chain, and the vault reverts before any USDC moves.</li>
+</ul>
+
+<h2>Live Now</h2>
+<ul>
+  <li><strong>Live app:</strong> <a href="https://veilzk.vercel.app">https://veilzk.vercel.app</a> (both wallets, full flow, proving on-device)</li>
+  <li><strong>Real WETH locked on Ethereum Sepolia:</strong> tx <code>0x4fa09246a74fb6463c49b35fd3233459a0984a0ad53349603be3868db77cc959</code></li>
+  <li><strong>Cross-chain attestation delivered to Stellar via Axelar:</strong> execute tx <code>bdc2af52b1382a375bcc73dd05b42929de777e66b44c928a1a6af91c9a40fe27</code></li>
+  <li><strong>Real USDC borrowed against a ZK proof:</strong> Circle USDC disbursed on Stellar, verified against <code>veil-vault</code></li>
+  <li><strong>Both ZK provers verify live on-chain:</strong> the lock proof and the release proof, plus on-chain rejection of a tampered proof</li>
+  <li><strong>Open source:</strong> <a href="https://github.com/dmustapha/veil">https://github.com/dmustapha/veil</a></li>
+</ul>
+
+<h2>Tech Stack</h2>
+<p><code>Circom</code> + <code>Groth16</code> (BN254) circuits, proven client-side with <code>snarkjs</code> in the browser, verified natively by <code>Soroban</code> (Rust, Protocol 27) BN254 verifier contracts. <code>Poseidon2</code> commitment tree. <code>Axelar</code> GMP for cross-chain attestation. <code>VeilEthLock</code> in Solidity (Foundry) on Ethereum Sepolia. <code>Reflector</code> price oracle. Next.js, viem, and Freighter on the client.</p>
+
+<h2>Deployed Contracts</h2>
+<p><strong>Ethereum Sepolia (chainId 11155111):</strong></p>
+<ul>
+  <li>VeilEthLock: <code>0x06bB519A490030DE251EeB83818F875Cc87002e0</code></li>
+  <li>Deposit verifier: <code>0xfe346c22f793032a1f5d3ba18d940fe27e9fc19f</code></li>
+</ul>
+<p><strong>Stellar testnet (Soroban, Protocol 27):</strong></p>
+<ul>
+  <li>veil-pool: <code>CA7H5WQISBIWVEWXRBTGHSB3UMEFK7RR4QJHYGAMZVEV7NSW3MFJLHLN</code></li>
+  <li>veil-vault: <code>CAXOQQ7V4ZDI5TO5SJQQLGXHMWATL3VXXG5YBZJ33SCR7IJ3C7JRYBPT</code></li>
+  <li>Borrow verifier: <code>CBTSWUY5OME4EDY3YA7OBRXHVMSBZH4MWO4GSGNPR4FAGG36RGQGDMM2</code></li>
+  <li>Lock verifier: <code>CA4XWFDN4BDKRDVJ43IQLFQ6IGMU477OAEQXBYFCX2NQ7JWVJHE5A4TE</code></li>
+  <li>Release verifier: <code>CDH7TOPQL2X3UW6SQNGRSOAOKLRI2QNQU6A3VDHJR2JQDNWMCSS2GLCB</code></li>
+</ul>
+
+<h2>Business Model</h2>
+<ul>
+  <li><strong>Borrow-side spread:</strong> a small margin on the interest rate, the standard revenue line for a lending market.</li>
+  <li><strong>Privacy as the moat:</strong> the first lending venue where a large position does not become a public target.</li>
+  <li><strong>Cross-chain reach:</strong> collateral held on a major L1, liquidity drawn on Stellar's low-fee rails.</li>
+</ul>
+
+<h2>Hackathon Alignment</h2>
+<p>Primary track: Real-World ZK. Veil puts zero-knowledge proofs to real economic work, private and solvent lending, verified natively on Stellar. Real assets on both sides: WETH collateral on Ethereum and Circle USDC loans on Stellar, live on testnets today.</p>
+
+<h2>Try It</h2>
+<p>Live app: <a href="https://veilzk.vercel.app">https://veilzk.vercel.app</a> . Code: <a href="https://github.com/dmustapha/veil">https://github.com/dmustapha/veil</a> . Verified on-chain: WETH lock <code>0x4fa09246a74fb6463c49b35fd3233459a0984a0ad53349603be3868db77cc959</code>, Stellar delivery <code>bdc2af52b1382a375bcc73dd05b42929de777e66b44c928a1a6af91c9a40fe27</code>.</p>
+
+</body>
+</html>

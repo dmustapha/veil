@@ -112,3 +112,8 @@ pipeline-log.md
 SCOPE.md
 .claude/
 E2E-REPAY-FIX.md
+
+# demo-video project: keep the docs, ignore the heavy/generated bits
+video/node_modules/
+video/out/
+video/.DS_Store
