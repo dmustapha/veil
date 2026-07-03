@@ -139,6 +139,14 @@ contract VeilEthLockV2Test is Test {
         lockc.execute(bytes32(uint256(2)), SRC_CHAIN, SRC_ADDR, payload);
     }
 
+    /// @notice Wrong sourceChain must revert UntrustedSource (tests the other branch of the || guard).
+    function test_execute_rejectsUntrustedSourceChain() public {
+        bytes memory payload = abi.encode(C, recipient);
+
+        vm.expectRevert(VeilEthLockV2.UntrustedSource.selector);
+        lockc.execute(bytes32(uint256(1)), "evil-chain", SRC_ADDR, payload);
+    }
+
     /// @notice Wrong sourceAddress must revert UntrustedSource regardless of gateway approval.
     function test_execute_rejectsUntrustedSourceAddress() public {
         bytes memory payload = abi.encode(C, recipient);

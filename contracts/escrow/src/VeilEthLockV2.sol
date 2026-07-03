@@ -107,6 +107,8 @@ contract VeilEthLockV2 {
     error DestinationAlreadySet();
     error DestinationUnset();
     error SourceAlreadySet();
+    error EmptySource();
+    error SourceNotSet();
     error NotApprovedByGateway();
     error UntrustedSource();
     error AlreadyReleased();
@@ -179,6 +181,7 @@ contract VeilEthLockV2 {
     function setTrustedSource(string calldata chain_, string calldata addr_) external {
         if (msg.sender != owner) revert NotOwner();
         if (bytes(trustedSourceAddress).length != 0) revert SourceAlreadySet();
+        if (bytes(chain_).length == 0 || bytes(addr_).length == 0) revert EmptySource();
         trustedSourceChain = chain_;
         trustedSourceAddress = addr_;
     }
@@ -192,6 +195,9 @@ contract VeilEthLockV2 {
         string calldata sourceAddress,
         bytes calldata payload
     ) external {
+        // 0. Defense-in-depth: trusted source must have been configured by owner.
+        if (bytes(trustedSourceAddress).length == 0) revert SourceNotSet();
+
         // 1. Gateway approval check (also marks commandId as executed — Axelar replay guard).
         bytes32 payloadHash = keccak256(payload);
         if (!gateway.validateContractCall(commandId, sourceChain, sourceAddress, payloadHash))
