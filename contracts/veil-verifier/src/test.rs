@@ -5,7 +5,7 @@
 //! snarkjs JSON by `circom/gen_fixtures.js`.
 #![cfg(test)]
 
-use crate::fixtures::{Fx, BORROW, LOCK, SEIZE, UNLOCK};
+use crate::fixtures::{Fx, BORROW, LOCK, RELEASE_REPAID, SEIZE, UNLOCK};
 use crate::{verification_key_from_bytes, Groth16Proof, VeilVerifier, VerificationKeyBytes};
 use soroban_sdk::{
     crypto::bn254::{Bn254Fr, Bn254G1Affine, Bn254G2Affine},
@@ -75,6 +75,11 @@ fn unlock_proof_verifies_on_soroban() {
 #[test]
 fn seize_proof_verifies_on_soroban() {
     roundtrip(&SEIZE, "seize");
+}
+
+#[test]
+fn release_repaid_proof_verifies_on_soroban() {
+    roundtrip(&RELEASE_REPAID, "release_repaid");
 }
 
 /// Audit H-01: the tests above use a RUNTIME vk from fixtures; the deployed contract instead uses

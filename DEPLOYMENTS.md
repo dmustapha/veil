@@ -373,3 +373,19 @@ Axelar delivered the message end-to-end (confirm→approve; approve tx on Stella
 cross-chain attestation is authenticated on-chain via **Axelar's decentralized validator set** (no
 trusted relayer, no state-root poster). ETH stays on Ethereum; only the authenticated `(C, amount)` +
 the shielded borrow proof cross over.
+
+## Reverse-leg verifiers (2026-07-03)
+
+Two new Groth16 verifier contracts for the repayment/release path (B1′ lock VK + release_repaid circuit).
+Both deployed via `veil-spike` on Stellar testnet.
+
+| Label | Contract ID | WASM sha256 |
+|---|---|---|
+| `LOCK_V2_VERIFIER` | `CA4XWFDN4BDKRDVJ43IQLFQ6IGMU477OAEQXBYFCX2NQ7JWVJHE5A4TE` | `294de062dd2d4ecb5bc6a7cdd1e2684653f943ba225d577a2871d34363796f4c` |
+| `RELEASE_VERIFIER` | `CDH7TOPQL2X3UW6SQNGRSOAOKLRI2QNQU6A3VDHJR2JQDNWMCSS2GLCB` | `1aabd468e8b397fae3427aa547a177e20a4cd6a2b877c992ed11e5f302b1acca` |
+
+- lock_v2 deploy tx: `a35772057ca99e30c39e71bfc32d1b1e855a78a9754e2114beec2043e2318bca`
+- release deploy tx (upload): `0842bbbb319e09d55b0720743ec17e87323d3389db38304c6e86f51f4a8c011c`
+- release deploy tx (instantiate): `82b4ca30e5fa4441613662819815bb3dbddcae13e49539d3badd4daae5a82c5d`
+- VKs: `circom/keys/lock.vk.json` (B1′) and `circom/keys/release_repaid.vk.json`
+- All 7 cargo roundtrip tests pass (incl. new `release_repaid_proof_verifies_on_soroban`)
