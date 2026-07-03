@@ -15,7 +15,7 @@ mod ttl;
 #[cfg(feature = "contract")]
 use soroban_sdk::{
     contract, contractclient, contractevent, contractimpl, contracttype, crypto::bn254::Bn254Fr,
-    Address, Bytes, BytesN, Env, String, Vec, U256,
+    Address, Bytes, BytesN, Env, IntoVal, String, Vec, U256,
 };
 // `deposit` (Stellar-token escrow) is compiled ONLY for tests / the opt-in `stellar_deposit` feature —
 // the deployed cross-chain pool has no token-deposit path (M-02: else USDC sent via deposit() is
@@ -65,6 +65,16 @@ pub struct AttestLock {
     pub index: u32,
     pub commitment: U256,
     pub amount: i128,
+}
+
+/// Emitted when a release_repaid proof is consumed and an Axelar reverse-leg message is sent.
+/// Lets indexers track every collateral release back to Ethereum without scanning Axelar.
+#[cfg(feature = "contract")]
+#[contractevent]
+#[derive(Clone)]
+pub struct ReleaseEmitted {
+    pub c0: U256,
+    pub recipient: BytesN<20>,
 }
 
 /// Instance config keys.
@@ -578,6 +588,107 @@ impl VeilPool {
         let r = U256::from_be_bytes(env, &Bytes::from_array(env, &BN254_R));
         assert!(v < &r, "field element not canonical");
     }
+
+    /// keccak256(evm_addr) mod r — the field element the release_repaid circuit commits the
+    /// recipient to. The RAW 20-byte address is carried in the Axelar payload for the transfer;
+    /// this binding proves the prover chose that specific address (mirrors veil-vault's borrower_field).
+    fn recipient_field(env: &Env, addr: &BytesN<20>) -> U256 {
+        // keccak256 returns Hash<32>; extract the raw bytes via to_array().
+        let h = env.crypto().keccak256(&Bytes::from_array(env, &addr.to_array()));
+        let hu = U256::from_be_bytes(env, &Bytes::from_array(env, &h.to_array()));
+        let r = U256::from_be_bytes(env, &Bytes::from_array(env, &BN254_R));
+        hu.rem_euclid(&r)
+    }
+
+    /// Emit the reverse-leg Axelar message: pay gas, then call VeilEthLock on Sepolia.
+    /// Destination reuses the trusted inbound counterpart (SourceChain = Ethereum's Axelar name,
+    /// EthLockAddr = the VeilEthLock string). A trap here reverts the caller's nullifier spend.
+    fn emit_release(env: &Env, c0: &U256, recipient: &BytesN<20>) {
+        let s = env.storage().instance();
+        let gateway: Address = s.get(&ConfigKey::AxelarGateway).expect("gateway unset");
+        let gas_service: Address = s.get(&ConfigKey::AxelarGasService).expect("gas service unset");
+        let gas_token: Address = s.get(&ConfigKey::GasToken).expect("gas token unset");
+        let dest_chain: String = s.get(&ConfigKey::SourceChain).expect("dest chain unset");
+        let dest_addr: String = s.get(&ConfigKey::EthLockAddr).expect("dest addr unset");
+        let budget: i128 = s.get(&ConfigKey::GasBudget).expect("gas budget unset");
+
+        // payload = abi.encode(uint256 C0, address recipient) → 64 bytes
+        // [0..32] = C0 BE  [32..44] = zero pad  [44..64] = address
+        let mut payload = Bytes::new(env);
+        payload.append(&c0.to_be_bytes());                                      // 32 bytes
+        payload.append(&Bytes::from_array(env, &[0u8; 12]));                   // address left-pad
+        payload.append(&Bytes::from_array(env, &recipient.to_array()));         // 20 bytes
+
+        let me = env.current_contract_address();
+
+        // Prepay gas from the pool's own gas-token balance. The gas service pulls the token from
+        // `sender`, so authorize that transfer as the current contract (calibrated in Task 8).
+        env.authorize_as_current_contract(soroban_sdk::vec![
+            env,
+            soroban_sdk::auth::InvokerContractAuthEntry::Contract(
+                soroban_sdk::auth::SubContractInvocation {
+                    context: soroban_sdk::auth::ContractContext {
+                        contract: gas_token.clone(),
+                        fn_name: soroban_sdk::Symbol::new(env, "transfer"),
+                        args: (me.clone(), gas_service.clone(), budget).into_val(env),
+                    },
+                    sub_invocations: soroban_sdk::vec![env],
+                },
+            ),
+        ]);
+        AxelarGasServiceClient::new(env, &gas_service).pay_gas(
+            &me,
+            &dest_chain,
+            &dest_addr,
+            &payload,
+            &me,
+            &Token { address: gas_token, amount: budget },
+            &Bytes::new(env),
+        );
+
+        // Send the GMP message. The pool is the DIRECT caller, so call_contract's
+        // caller.require_auth() is auto-satisfied — no authorize_as_current_contract needed.
+        AxelarGatewayMessagingClient::new(env, &gateway)
+            .call_contract(&me, &dest_chain, &dest_addr, &payload);
+
+        ReleaseEmitted { c0: c0.clone(), recipient: recipient.clone() }.publish(env);
+    }
+
+    /// Reverse leg: verify a repaid-release proof, spend the LOCKED note's nullifier, and emit an
+    /// Axelar message releasing the C0-keyed WETH on Sepolia to `recipient`.
+    pub fn release_repaid(
+        env: Env,
+        proof: Groth16Proof,
+        nullifier: U256,
+        c0: U256,
+        recipient: BytesN<20>,
+        root_pool: U256,
+        root_repaid: U256,
+    ) {
+        for v in [&nullifier, &c0, &root_pool, &root_repaid] {
+            Self::require_canonical(&env, v);
+        }
+        let recipient_fr = Self::recipient_field(&env, &recipient);
+
+        // Public signals (snarkjs order): [nullifierOut, C0, recipient, rootPool, rootRepaid].
+        let mut pi: Vec<Bn254Fr> = Vec::new(&env);
+        pi.push_back(Self::fr(&env, &nullifier));
+        pi.push_back(Self::fr(&env, &c0));
+        pi.push_back(Self::fr(&env, &recipient_fr));
+        pi.push_back(Self::fr(&env, &root_pool));
+        pi.push_back(Self::fr(&env, &root_repaid));
+        Self::verify(&env, ConfigKey::ReleaseVerifier, &proof, &pi);
+
+        assert!(Self::known_root(&env, &root_pool), "unknown pool root");
+        assert!(root_repaid == Self::vault(&env).repaid_root(), "unknown/stale repaid root");
+        assert!(NullifierSet::try_spend(&env, &nullifier), "nullifier already spent");
+
+        // No new pool leaf is minted (collateral leaves the shielded pool for Ethereum).
+        // TotalDeposited is a high-water informational counter and is intentionally NOT decremented
+        // here (the release circuit does not expose amount); the real double-release guards are
+        // try_spend(nullifier) above + released[C0] on Ethereum.
+        Self::emit_release(&env, &c0, &recipient);
+    }
 }
 
 /// Minimal storage-host contract for the internal-module tests (tree / nullifier set): they need a
@@ -659,6 +770,36 @@ impl StubGateway {
     ) -> bool {
         env.storage().instance().get(&soroban_sdk::symbol_short!("OK")).unwrap_or(true)
     }
+
+    /// No-op outbound call_contract — satisfies AxelarGatewayMessagingClient in release tests.
+    pub fn call_contract(
+        _env: Env,
+        _caller: Address,
+        _destination_chain: String,
+        _destination_address: String,
+        _payload: Bytes,
+    ) {}
+}
+
+/// No-op Axelar gas service stub — pay_gas does nothing, so release tests don't need a real SAC
+/// balance. With mock_all_auths the authorize_as_current_contract sub-invocation is also mocked.
+#[cfg(test)]
+#[contract]
+pub struct StubGasService;
+#[cfg(test)]
+#[contractimpl]
+impl StubGasService {
+    #[allow(clippy::too_many_arguments)]
+    pub fn pay_gas(
+        _env: Env,
+        _sender: Address,
+        _destination_chain: String,
+        _destination_address: String,
+        _payload: Bytes,
+        _spender: Address,
+        _token: crate::Token,
+        _metadata: Bytes,
+    ) {}
 }
 
 #[cfg(test)]
@@ -1551,4 +1692,115 @@ mod merkle_test {
 
         assert_eq!(root_single, root_pair, "four single inserts must equal two pair inserts");
     }
+}
+
+/// Tests for the release_repaid entrypoint and its double-spend guard.
+#[cfg(test)]
+mod release_test {
+    use crate::{StubGasService, StubGateway, StubVault, StubVerifier, VeilPool, VeilPoolClient};
+    use soroban_sdk::crypto::bn254::{Bn254G1Affine, Bn254G2Affine};
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::{token, Address, BytesN, Env, String, U256};
+    use veil_verifier::Groth16Proof;
+
+    fn dummy_proof(env: &Env) -> Groth16Proof {
+        Groth16Proof {
+            a: Bn254G1Affine::from_bytes(BytesN::from_array(env, &[0u8; 64])),
+            b: Bn254G2Affine::from_bytes(BytesN::from_array(env, &[0u8; 128])),
+            c: Bn254G1Affine::from_bytes(BytesN::from_array(env, &[0u8; 64])),
+        }
+    }
+
+    /// Returns (env, pool_client, known_pool_root, repaid_root).
+    fn setup() -> (Env, VeilPoolClient<'static>, U256, U256) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+
+        // Pool collateral token (SAC) + funded user for a deposit that establishes a known root.
+        let pool_sac = env.register_stellar_asset_contract_v2(Address::generate(&env));
+        let user = Address::generate(&env);
+        token::StellarAssetClient::new(&env, &pool_sac.address()).mint(&user, &1_000i128);
+
+        // Gas token SAC (separate from pool token; pay_gas is a no-op in tests so no balance needed).
+        let gas_token_sac = env.register_stellar_asset_contract_v2(Address::generate(&env));
+
+        // StubVerifier: accepts any proof (used for all four verifier slots + release_verifier).
+        let verifier = env.register(StubVerifier, ());
+
+        // StubGateway: extended with no-op call_contract (needed by emit_release).
+        // validate_message returns true (default), which is fine — execute is not called here.
+        let gateway = env.register(StubGateway, (true,));
+
+        // StubVault: settable repaid/liquidated roots.
+        let vault = env.register(StubVault, ());
+
+        // StubGasService: no-op pay_gas.
+        let gas_svc = env.register(StubGasService, ());
+
+        let pool_id = env.register(
+            VeilPool,
+            (
+                admin.clone(),
+                pool_sac.address(),
+                16u32,
+                verifier.clone(), // lock_verifier
+                verifier.clone(), // unlock_verifier
+                verifier.clone(), // seize_verifier
+                gateway,          // axelar_gateway (inbound validate + outbound call_contract)
+                String::from_str(&env, "ethereum-sepolia"),
+                verifier.clone(), // release_verifier
+            ),
+        );
+        let pool = VeilPoolClient::new(&env, &pool_id);
+
+        // Wire the vault (one-time).
+        pool.set_vault(&vault);
+
+        // Pin the EthLockAddr so emit_release can read ConfigKey::EthLockAddr.
+        pool.set_eth_lock(&String::from_str(&env, "0xVeilEthLock"));
+
+        // Wire the outbound gas config.
+        pool.set_axelar_outbound(&gas_svc, &gas_token_sac.address(), &20_000_000i128);
+
+        // Deposit one note to establish a non-trivial known pool root.
+        pool.deposit(&user, &1_000i128, &U256::from_u32(&env, 7), &U256::from_u32(&env, 9));
+        let known_root = pool.root();
+
+        // Set the vault's repaid root to a known value so release_repaid's root_repaid check passes.
+        let repaid_root = U256::from_u32(&env, 42);
+        let liquidated_root = U256::from_u32(&env, 43);
+        env.invoke_contract::<()>(
+            &vault,
+            &soroban_sdk::Symbol::new(&env, "set_roots"),
+            soroban_sdk::vec![
+                &env,
+                repaid_root.clone().into_val(&env),
+                liquidated_root.into_val(&env),
+            ],
+        );
+
+        (env, pool, known_root, repaid_root)
+    }
+
+    /// A valid release_repaid call succeeds and the nullifier is marked spent.
+    /// The SECOND call with the same nullifier must panic with "nullifier already spent".
+    #[test]
+    #[should_panic(expected = "nullifier already spent")]
+    fn release_repaid_single_release() {
+        let (env, pool, known_root, repaid_root) = setup();
+
+        let proof = dummy_proof(&env);
+        let nullifier = U256::from_u32(&env, 555);
+        let c0 = U256::from_u32(&env, 666);
+        let recipient = BytesN::from_array(&env, &[0xABu8; 20]);
+
+        // First call: all guards pass, emit_release runs (no-op mocks), nullifier spent.
+        pool.release_repaid(&proof, &nullifier, &c0, &recipient, &known_root, &repaid_root);
+
+        // Second call: NullifierSet::try_spend returns false → panics "nullifier already spent".
+        pool.release_repaid(&proof, &nullifier, &c0, &recipient, &known_root, &repaid_root);
+    }
+
+    use soroban_sdk::IntoVal;
 }
