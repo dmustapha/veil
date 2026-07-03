@@ -5,26 +5,28 @@
  * USDC", one on-chain step at a time, across two wallets. Every private witness is proven in the
  * browser; only proofs and public commitments ever leave the device.
  *
- *   created ─▶ locked-eth ─▶ attested ─▶ locked-note ─▶ borrowed
- *              (Ethereum)     (Stellar)    (Stellar)      (Stellar)
+ *   created ─▶ locked-eth ─▶ attested ─▶ locked-note ─▶ borrowed ─▶ repaid ─▶ released
+ *              (Ethereum)     (Stellar)    (Stellar)      (Stellar)   (Stellar)  (Ethereum)
  *
- * The two runners are IDEMPOTENT and RESUMABLE: each reads the note's current `status` (and the live
+ * All three runners are IDEMPOTENT and RESUMABLE: each reads the note's current `status` (and the live
  * WETH balance/allowance/lock) to skip work already done, and persists the note after every step. That
  * matters because the Axelar attestation between the Ethereum lock and the Stellar insert can take
  * several minutes — a reload mid-flow must be able to pick up exactly where it left off.
  */
-import { parseEther, type Hex } from "viem";
+import { keccak256, parseEther, toBytes, type Hex } from "viem";
 import {
-  approveWeth, isLocked, lockCollateral, wethAllowance, wethBalance, wrapEth,
+  approveWeth, isLocked, isReleased, lockCollateral, wethAllowance, wethBalance, wrapEth,
 } from "./eth";
 import { waitForAxelarApproval, type AxelarMessage } from "./axelar";
-import { borrow, execute, lockNote, poolLeafEvents } from "./stellar";
+import { borrow, execute, lockNote, poolLeafEvents, repaidRoot, repay, releaseRepaid } from "./stellar";
 import { updateNote, toLockNote, toBorrowNote, type VeilNote } from "./notes";
 import { AXELAR_GAS_WEI, PUBLIC_THRESHOLD_WEI } from "@/lib/onchain";
-import { proveBorrow, proveDepositFromEth, proveLock, publicSignalsToBorrowArgs, publicSignalsToLockArgs, toEvmProof } from "@/lib/prove/groth16";
+import { proveBorrow, proveDepositFromEth, proveLock, proveRelease, publicSignalsToBorrowArgs, publicSignalsToLockArgs, publicSignalsToReleaseArgs, toEvmProof } from "@/lib/prove/groth16";
 import { buildLockWitness } from "@/lib/prove/lock";
-import { buildBorrowWitness } from "@/lib/prove/witness";
-import { pathForCommitment, type MerklePath } from "@/lib/prove/tree";
+import { buildBorrowWitness, BN254_R } from "@/lib/prove/witness";
+import { buildMerklePath, pathForCommitment, type MerklePath } from "@/lib/prove/tree";
+import { buildReleaseWitness } from "@/lib/prove/release";
+import { lockHandle, repaidLeaf, positionId as derivePositionId } from "@/lib/prove/notes";
 
 /** ETH value (in ETH) a fresh note wraps as WETH — parsed to wei before it ever touches a contract. */
 export const parseCollateral = (eth: string): bigint => parseEther(eth.trim());
@@ -48,8 +50,18 @@ export const BORROW_STEPS = [
   { key: "borrow", label: "Disbursing real USDC on Stellar" },
 ] as const;
 
+/** The ordered steps of the repay (borrowed → released) reverse leg. */
+export const REPAY_STEPS = [
+  { key: "repay", label: "Repay USDC on Stellar" },
+  { key: "prove", label: "Prove release (browser)" },
+  { key: "release", label: "Submit release to the pool" },
+  { key: "axelar", label: "Relay to Ethereum (Axelar)" },
+  { key: "released", label: "WETH released on Sepolia" },
+] as const;
+
 export type OpenStepKey = (typeof OPEN_STEPS)[number]["key"];
 export type BorrowStepKey = (typeof BORROW_STEPS)[number]["key"];
+export type RepayStepKey = (typeof REPAY_STEPS)[number]["key"];
 
 /** Progress callback: the step about to run, plus an optional live detail (e.g. an Axelar sub-status). */
 export type OnStep<K extends string> = (key: K, detail?: string) => void;
@@ -173,6 +185,111 @@ export async function runBorrowPipeline(
     onStep("borrow");
     const borrowTx = await borrow(proof, positionId, lockHandle, root, threshold, xlmAddress);
     current = await applyPatch(current, { status: "borrowed", borrowTx, lockedLeafIndex: path.leafIndex });
+  }
+
+  return current;
+}
+
+/**
+ * Drive a `borrowed` note through loan repayment, the shielded release proof, the Axelar reverse hop,
+ * and WETH recovery on Ethereum — returning the note in the `released` state. Fully resumable: each
+ * step checks the live note status / on-chain state and skips work already done so a reload picks up
+ * exactly where it left off.
+ *
+ * The repaid-tree path is derived analytically (our repay is always index 0 when starting from an
+ * empty repaid tree; confirmed by matching ZERO_LEVELS[16] to the vault's empty repaid_root). The
+ * on-chain `repaid_root` is read via a simulate call AFTER repay and used as the circuit's public root.
+ */
+export async function runRepayPipeline(
+  note: VeilNote,
+  deps: EthDeps & StellarDeps,
+  onStep: OnStep<RepayStepKey>,
+): Promise<VeilNote> {
+  const { ethAccount, xlmAddress } = deps;
+  let current = note;
+
+  // ── Step 1: Repay ──────────────────────────────────────────────────────────
+  // Repay the USDC debt. `positionId` is derived from the private `loanSecret`
+  // (same formula the borrow circuit uses: H1(loanSecret, DS_POS)).
+  if (current.status === "borrowed") {
+    onStep("repay");
+    const pid = derivePositionId(BigInt(current.loanSecret));
+    const repayTx = await repay(pid, xlmAddress);
+    current = await applyPatch(current, { status: "repaid", repayTx });
+  }
+
+  // ── Steps 2+3: Prove then Release ──────────────────────────────────────────
+  // These are a single resume unit: if we die between prove and release we
+  // simply reprove (deterministic given the same inputs). The `releaseTx` is
+  // the resume checkpoint — once set, the proof has landed on Stellar.
+  if (current.status === "repaid" && !current.releaseTx) {
+    // ── Step 2: Prove ────────────────────────────────────────────────────────
+    onStep("prove");
+
+    // Pool Merkle path for the LOCKED note (C1 = commitmentLocked).
+    const events = await poolLeafEvents();
+    const poolPathRaw = pathForCommitment(
+      events,
+      BigInt(current.commitmentLocked),
+      current.lockedLeafIndex,
+    );
+    const poolPath = numToBig(poolPathRaw);
+
+    // Repaid-tree Merkle path. The vault starts from repaid_count==0, so our
+    // repay inserts the leaf at index 0. The path siblings are all ZERO_LEVELS.
+    const lh = lockHandle(BigInt(current.lockId));
+    const repaidLeafVal = repaidLeaf(lh);
+    const repaidPathRaw = buildMerklePath([repaidLeafVal], 0);
+    // Read the actual on-chain root AFTER repay — the circuit must prove against it.
+    const onChainRepaidRoot = await repaidRoot(xlmAddress);
+    const repaidPath = { ...numToBig(repaidPathRaw), root: onChainRepaidRoot };
+
+    // Recipient field: keccak256(<20-byte EVM address>) mod BN254_R.
+    const recipientField = BigInt(keccak256(toBytes(ethAccount))) % BN254_R;
+
+    // Build the release_repaid.circom witness (private fields stay on device).
+    // `blindingIn` in the release circuit = `blindingOut` of the VeilNote (the LOCKED note's blinding).
+    const releaseNoteForProof = {
+      C0: BigInt(current.commitmentAvailable),
+      amount: BigInt(current.amount),
+      blindingIn: BigInt(current.blindingOut),
+      spendPk: BigInt(current.spendPk),
+      nk: BigInt(current.nk),
+      lockId: BigInt(current.lockId),
+      r: BigInt(current.r!),
+    };
+    const witness = buildReleaseWitness(releaseNoteForProof, poolPath, repaidPath, recipientField);
+    const { proof, publicSignals } = await proveRelease(witness);
+    const { nullifier, c0, rootPool, rootRepaid } = publicSignalsToReleaseArgs(publicSignals);
+
+    // ── Step 3: Release ──────────────────────────────────────────────────────
+    // `recipient` is the raw 0x hex EVM address (hex-decoded to BytesN<20> in stellar.ts).
+    onStep("release");
+    const releaseTx = await releaseRepaid(
+      proof, nullifier, c0, ethAccount, rootPool, rootRepaid, xlmAddress,
+    );
+    current = await applyPatch(current, { releaseTx });
+  }
+
+  // ── Step 4: Axelar ─────────────────────────────────────────────────────────
+  // Poll the GMP API until the Stellar release message is approved on Ethereum.
+  if (current.status === "repaid" && current.releaseTx) {
+    onStep("axelar");
+    await waitForAxelarApproval(current.releaseTx, {
+      onUpdate: (m: AxelarMessage) => onStep("axelar", axelarDetail(m)),
+    });
+  }
+
+  // ── Step 5: Released ───────────────────────────────────────────────────────
+  // Poll VeilEthLock.isReleased(C0) until the Axelar executor delivers the WETH.
+  if (current.status !== "released") {
+    onStep("released");
+    const c0 = BigInt(current.commitmentAvailable);
+    for (let i = 0; i < 40; i++) {
+      if (await isReleased(c0)) break;
+      await new Promise<void>((r) => setTimeout(r, 15_000));
+    }
+    current = await applyPatch(current, { status: "released" });
   }
 
   return current;

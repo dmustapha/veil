@@ -68,6 +68,9 @@ export interface VeilNote {
   lockTx?: string; // Soroban veil-pool.lock (AVAILABLE→LOCKED)
   lockedLeafIndex?: number;
   borrowTx?: string; // veil-vault.borrow
+  repayTx?: string; // veil-vault.repay (status: repaid)
+  releaseTx?: string; // veil-pool.release_repaid → Axelar reverse-hop tx hash
+  releaseEthTx?: string; // Ethereum WETH-release tx hash (status: released)
 }
 
 /**

@@ -11,6 +11,7 @@ import {
   TransactionBuilder,
   nativeToScVal,
   rpc,
+  scValToNative,
   xdr,
 } from "@stellar/stellar-sdk";
 import {
@@ -213,6 +214,30 @@ export function releaseRepaid(
     [proofScVal(proof), u256Val(nullifier), u256Val(c0), recipientScVal, u256Val(rootPool), u256Val(rootRepaid)],
     source,
   );
+}
+
+/**
+ * Read the vault's current incremental repaid-tree root (simulate-only — no signing, no fee).
+ * Call this AFTER `repay` to get the updated root the release proof must prove against.
+ */
+export async function repaidRoot(source: string): Promise<bigint> {
+  const srv = server();
+  const account = await srv.getAccount(source);
+  const op = new Contract(VEIL_VAULT).call("repaid_root");
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: TESTNET_PASSPHRASE,
+  })
+    .addOperation(op)
+    .setTimeout(60)
+    .build();
+  const result = await srv.simulateTransaction(tx);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sim = result as any;
+  if (sim.error) throw new Error(`repaid_root simulation failed: ${sim.error}`);
+  const retVal = sim.result?.retval;
+  if (!retVal) throw new Error("repaid_root returned no value");
+  return scValToNative(retVal) as bigint;
 }
 
 /**
