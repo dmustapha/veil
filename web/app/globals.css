@@ -1998,8 +1998,11 @@ h2.app-h2,
 }
 .pos-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  /* auto-fit (not auto-fill) collapses empty tracks, so a single position centers instead of
+     clinging to the left of a phantom 2-col grid; cap track width so cards don't stretch wide. */
+  grid-template-columns: repeat(auto-fit, minmax(340px, 440px));
   gap: 20px;
+  justify-content: center;
 }
 @media (max-width: 460px) {
   .pos-grid {

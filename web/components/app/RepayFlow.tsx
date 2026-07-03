@@ -20,6 +20,7 @@ export function RepayFlow({ note, onRepaid }: { note: VeilNote; onRepaid: () => 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [step, setStep] = useState<RepayStepKey | null>(null);
+  const [detail, setDetail] = useState("");
 
   const completed = useMemo(() => {
     const i = step ? REPAY_INDEX.get(step) ?? 0 : 0;
@@ -40,7 +41,10 @@ export function RepayFlow({ note, onRepaid }: { note: VeilNote; onRepaid: () => 
       await runRepayPipeline(
         note,
         { xlmAddress: xlm.address, ethAccount: eth.address as Hex },
-        (key) => setStep(key),
+        (key, d) => {
+          setStep(key);
+          setDetail(d ?? "");
+        },
       );
       setStep(null);
       onRepaid();
@@ -49,6 +53,7 @@ export function RepayFlow({ note, onRepaid }: { note: VeilNote; onRepaid: () => 
       setStep(null);
     } finally {
       setBusy(false);
+      setDetail("");
     }
   };
 
@@ -59,12 +64,26 @@ export function RepayFlow({ note, onRepaid }: { note: VeilNote; onRepaid: () => 
           steps={REPAY_STEPS}
           current={step}
           done={completed}
+          detail={detail}
           waitKeys={["axelar", "released"]}
           waitText={
             <>
-              <b>Relaying back to Ethereum can take a few minutes.</b> The release is already
-              submitted — it&apos;s safe to leave; reopen the position later to finish recovering your
-              WETH.
+              <b>Relaying back to Ethereum can take a few minutes.</b> The release is already submitted —
+              it&apos;s safe to leave; reopen the position later to finish recovering your WETH.
+              {note.releaseTx ? (
+                <>
+                  {" "}
+                  <a
+                    className="tx-inline"
+                    href={`https://testnet.axelarscan.io/gmp/${note.releaseTx}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Track or top up the message on Axelarscan
+                  </a>
+                  .
+                </>
+              ) : null}
             </>
           }
         />

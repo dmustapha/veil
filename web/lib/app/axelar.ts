@@ -23,7 +23,12 @@ export interface AxelarMessage {
   sourceAddress: string | null;
   sourceChain: string | null;
   approveTxHash: string | null;
-  /** A human-facing reason when `status === "error"` (e.g. insufficient gas). */
+  /** RECOVERABLE gas underfunding (is_insufficient_fee / is_not_enough_gas). NOT fatal — Axelar can
+   *  still deliver once the fee is topped up or re-estimated, which is common on testnet. */
+  gasShort: boolean;
+  /** Axelarscan page for this message, so the UI can link the user to inspect / top up the gas. */
+  messageUrl: string | null;
+  /** A human-facing reason when `status === "error"` (a FATAL, non-deliverable condition). */
   error: string | null;
 }
 
@@ -42,18 +47,20 @@ export function parseGmpResponse(json: unknown): AxelarMessage {
   const root = json as { data?: unknown[] } | unknown[];
   const list = Array.isArray(root) ? root : (root?.data ?? []);
   const e = (Array.isArray(list) ? list[0] : undefined) as Record<string, any> | undefined;
-  if (!e) return { status: "unknown", messageId: null, sourceAddress: null, sourceChain: null, approveTxHash: null, error: null };
+  if (!e) return { status: "unknown", messageId: null, sourceAddress: null, sourceChain: null, approveTxHash: null, gasShort: false, messageUrl: null, error: null };
 
-  const errorFlags = [
-    e.is_insufficient_fee && "insufficient Axelar gas — top up the message",
-    e.is_not_enough_gas && "not enough gas to execute",
+  // FATAL: the message can never be delivered as-is → abort. RECOVERABLE (gas): underfunded, but Axelar
+  // can still deliver once the fee is topped up / re-estimated (common on testnet), so we keep waiting
+  // instead of hard-killing the repay/lock on a transient gas flag.
+  const fatalFlags = [
     e.is_invalid_source_address && "invalid source address",
     e.is_invalid_destination_chain && "invalid destination chain",
     e.error && "Axelar reported an execution error",
   ].filter(Boolean) as string[];
+  const gasShort = !!(e.is_insufficient_fee || e.is_not_enough_gas);
 
   const rawStatus = String(e.status ?? e.simplified_status ?? "unknown").toLowerCase();
-  const status: AxelarStatus = errorFlags.length
+  const status: AxelarStatus = fatalFlags.length
     ? "error"
     : (["called", "confirming", "confirmed", "approving", "approved", "executing", "executed"].includes(rawStatus)
         ? (rawStatus as AxelarStatus)
@@ -65,7 +72,9 @@ export function parseGmpResponse(json: unknown): AxelarMessage {
     sourceAddress: e.call?.returnValues?.sender ?? null,
     sourceChain: e.call?.chain ?? null,
     approveTxHash: e.approved?.transactionHash ?? null,
-    error: errorFlags[0] ?? null,
+    gasShort,
+    messageUrl: null,
+    error: fatalFlags[0] ?? null,
   };
 }
 
@@ -77,7 +86,8 @@ export async function fetchAxelarStatus(sourceTxHash: string): Promise<AxelarMes
     body: JSON.stringify({ txHash: sourceTxHash }),
   });
   if (!res.ok) throw new Error(`Axelar GMP API ${res.status}`);
-  return parseGmpResponse(await res.json());
+  const m = parseGmpResponse(await res.json());
+  return { ...m, messageUrl: `https://testnet.axelarscan.io/gmp/${sourceTxHash}` };
 }
 
 export interface WaitOptions {
@@ -99,7 +109,7 @@ export async function waitForAxelarApproval(
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const m = await fetchAxelarStatus(sourceTxHash).catch(
-      () => ({ status: "unknown" as const, messageId: null, sourceAddress: null, sourceChain: null, approveTxHash: null, error: null }),
+      () => ({ status: "unknown" as const, messageId: null, sourceAddress: null, sourceChain: null, approveTxHash: null, gasShort: false, messageUrl: `https://testnet.axelarscan.io/gmp/${sourceTxHash}`, error: null }),
     );
     opts.onUpdate?.(m);
     // Executability wins over a stale/transient error flag: once the message is approved on the

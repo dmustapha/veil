@@ -356,6 +356,7 @@ async function applyPatch(note: VeilNote, patch: Partial<VeilNote>): Promise<Vei
 /** A short human line for the Axelar wait, from the poll status. */
 function axelarDetail(m: AxelarMessage): string {
   if (m.status === "error") return m.error ?? "Axelar reported an error";
+  if (m.gasShort) return "Topping up Axelar gas for delivery — this usually clears on its own…";
   const phase =
     m.status === "executed" || m.status === "approved" ? "approved" :
     m.status === "confirming" || m.status === "confirmed" ? "confirming the Ethereum lock" :
