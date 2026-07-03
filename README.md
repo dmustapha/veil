@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/logo.png" alt="Veil" width="112" />
+</p>
+
 # Veil: private cross-chain margin lending
 
 Borrow USDC on Stellar against collateral you keep on Ethereum, with a zero-knowledge proof that hides your exact amount and your Ethereum wallet from the Stellar ledger. The collateral never bridges. Real WETH stays locked on Ethereum; only a note commitment, an amount, and a Groth16 proof cross over. What Stellar verifies is the proof, not a relayer's word. Built for Stellar Hacks: Real-World ZK.

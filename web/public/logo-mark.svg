@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 480 480">
+  <rect width="480" height="480" rx="104" fill="#0A0C10"/>
+  <!-- solid left arm (revealed) -->
+  <path d="M150 146 L240 330" stroke="#C7CCD1" stroke-width="48" stroke-linecap="round" fill="none"/>
+  <!-- right arm dissolving into a veil, fanning from the vertex -->
+  <g fill="none" stroke="#C7CCD1" stroke-linecap="round">
+    <path d="M240 330 L330 146" stroke-width="17" opacity="0.95"/>
+    <path d="M240 330 L357 165" stroke-width="12" opacity="0.55"/>
+    <path d="M240 330 L379 187" stroke-width="9"  opacity="0.28"/>
+  </g>
+  <!-- lime sealed value at the vertex -->
+  <circle cx="240" cy="330" r="16" fill="#BEF264"/>
+</svg>
