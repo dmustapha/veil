@@ -135,6 +135,20 @@ async function adoptAttested(note: VeilNote): Promise<VeilNote> {
 }
 
 /**
+ * Backfill a note's Stellar attest tx from Axelar's GMP API if it's attested (or later) but missing the
+ * hash because the relayer executed it. Persists and returns true if it filled one in; false otherwise.
+ * Safe to call on render/mount — best-effort, never throws. Lets the position card show the Attest tx
+ * proof row without waiting for the borrow step.
+ */
+export async function backfillAttestTx(note: VeilNote): Promise<boolean> {
+  if (note.executeTx || !note.lockTxEth || note.status === "created" || note.status === "locked-eth") return false;
+  const tx = await fetchAttestTx(note.lockTxEth);
+  if (!tx) return false;
+  await updateNote(note.commitmentAvailable, { executeTx: tx });
+  return true;
+}
+
+/**
  * Drive a freshly-created note through the Ethereum collateral leg and the Axelar attestation into the
  * pool, returning the note in the `attested` state (its AVAILABLE commitment now a pool leaf). Wraps /
  * approves only what the live balances lack, and skips the lock / attest / execute if already done.

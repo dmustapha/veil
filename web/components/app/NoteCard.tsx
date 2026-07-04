@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { formatEther } from "viem";
 import { FrostedVeil } from "@/components/FrostedVeil";
 import { BorrowFlow } from "./BorrowFlow";
@@ -8,6 +9,7 @@ import { RepayFlow } from "./RepayFlow";
 import { UseUsdc } from "./UseUsdc";
 import { TxLink } from "./ui";
 import { truncate, ethTxUrl, stellarTxUrl } from "@/lib/app/format";
+import { backfillAttestTx } from "@/lib/app/pipeline";
 import { POSITION } from "@/lib/constants";
 import type { NoteStatus, VeilNote } from "@/lib/app/notes";
 
@@ -27,6 +29,19 @@ const shortId = (dec: string) => truncate("0x" + BigInt(dec).toString(16).padSta
 export function NoteCard({ note, onChanged }: { note: VeilNote; onChanged: () => void }) {
   const canBorrow = note.status === "attested" || note.status === "locked-note";
   const borrowed = note.status === "borrowed";
+
+  // If the relayer executed the attestation, our client never stored the Stellar attest tx. Backfill it
+  // from Axelar on mount so the "Attest tx" proof row appears without waiting for the borrow step.
+  useEffect(() => {
+    if (note.executeTx || !note.lockTxEth) return;
+    let live = true;
+    backfillAttestTx(note).then((filled) => {
+      if (live && filled) onChanged();
+    });
+    return () => {
+      live = false;
+    };
+  }, [note.commitmentAvailable, note.executeTx, note.lockTxEth, note, onChanged]);
 
   return (
     <div className="card pos-card reveal">
