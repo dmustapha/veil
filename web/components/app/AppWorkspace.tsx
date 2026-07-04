@@ -120,18 +120,51 @@ function Positions() {
         <OpenPosition onCreated={reload} />
       </div>
 
-      {list.length === 0 ? (
-        <div className="empty reveal">
-          <Inbox aria-hidden="true" />
-          <p>No positions yet. Lock collateral above to open your first one.</p>
-        </div>
-      ) : (
-        <div className="pos-grid">
-          {list.map((n) => (
-            <NoteCard key={n.commitmentAvailable} note={n} onChanged={reload} />
-          ))}
-        </div>
-      )}
+      {(() => {
+        // A position is DONE once the collateral is back on Ethereum (status "released"): the full
+        // round trip is complete, so it moves out of the active view into History. Everything else
+        // (opening, attesting, borrowable, borrowed, repaying) stays active where it's actionable.
+        const active = list.filter((n) => n.status !== "released");
+        const history = list.filter((n) => n.status === "released");
+        return (
+          <>
+            {active.length === 0 && history.length === 0 ? (
+              <div className="empty reveal">
+                <Inbox aria-hidden="true" />
+                <p>No positions yet. Lock collateral above to open your first one.</p>
+              </div>
+            ) : active.length === 0 ? (
+              <div className="empty reveal">
+                <Inbox aria-hidden="true" />
+                <p>No active positions. Lock collateral above to open a new one.</p>
+              </div>
+            ) : (
+              <div className="pos-grid">
+                {active.map((n) => (
+                  <NoteCard key={n.commitmentAvailable} note={n} onChanged={reload} />
+                ))}
+              </div>
+            )}
+
+            {history.length > 0 && (
+              <div className="history-block reveal">
+                <div className="app-section-head">
+                  <h2 className="app-h2">History</h2>
+                  <p className="help">
+                    Completed round trips: collateral locked, borrowed against privately, repaid, and
+                    released back to Ethereum. Every proof is on-chain.
+                  </p>
+                </div>
+                <div className="pos-grid">
+                  {history.map((n) => (
+                    <NoteCard key={n.commitmentAvailable} note={n} onChanged={reload} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
     </>
   );
 }

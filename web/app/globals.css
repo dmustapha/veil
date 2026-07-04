@@ -2009,6 +2009,15 @@ h2.app-h2,
     grid-template-columns: 1fr;
   }
 }
+/* completed round trips, set apart from the active positions */
+.history-block {
+  margin-top: 48px;
+  padding-top: 32px;
+  border-top: 1px solid var(--line);
+}
+.history-block .pos-card {
+  opacity: 0.85;
+}
 .empty {
   display: flex;
   flex-direction: column;
