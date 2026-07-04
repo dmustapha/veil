@@ -38,6 +38,11 @@ Your capital is ETH on Ethereum, but the liquidity you want to use, Circle USDC 
 
 Veil lets you keep your ETH on Ethereum and borrow real USDC on Stellar against it, privately. You lock wrapped ETH on Ethereum, prove in zero knowledge that it clears a threshold, and receive USDC on Stellar. Only a note commitment, an amount, and a Groth16 proof cross over: the collateral never bridges, and the lender, the ledger, and every observer learn only that you cleared the bar, never the figure above it or the wallet behind it.
 
+Veil is two things at once:
+
+- **Capital efficiency across chains.** Your ETH stays on Ethereum, in your custody, still long or still earning, while its borrowing power reaches Circle USDC on Stellar's fast, low-cost rails. No selling, no bridging the asset itself, no giving up the position you meant to keep.
+- **Privacy by default.** The proof reveals only that your hidden collateral clears the required threshold. Your exact amount and your wallet never leave your device, so a large position never becomes a public target.
+
 Real WETH locked on Ethereum Sepolia. Real Circle USDC disbursed on Stellar. Both zero-knowledge proofs generated in the browser and verified on-chain. Every contract address and transaction below is live and independently verifiable.
 
 ---
