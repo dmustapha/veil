@@ -387,10 +387,22 @@ export async function runRepayPipeline(
     // Freighter signs. We pull a caller-fixed `maxRepay = debt + cushion` (auth stays valid across the
     // sign delay) and let the vault refund the unused excess. `REPAY_CUSHION` = 0.01 USDC @ 7dp, which
     // covers ~140k ledgers (~8 days) of accrual; the borrower only holds the extra 0.01 transiently.
-    const debt = await debtOf(pid, xlmAddress);
-    const maxRepay = debt + REPAY_CUSHION;
-    const repayTx = await repay(pid, maxRepay, xlmAddress);
-    current = await applyPatch(current, { status: "repaid", repayTx });
+    try {
+      const debt = await debtOf(pid, xlmAddress);
+      const maxRepay = debt + REPAY_CUSHION;
+      const repayTx = await repay(pid, maxRepay, xlmAddress);
+      current = await applyPatch(current, { status: "repaid", repayTx });
+    } catch (e) {
+      // Idempotent resume: the position is already REPAID on-chain (vault Error #8 AlreadyClosed) but
+      // our local note lagged (a prior repay committed on-chain while the release leg or the persist
+      // failed). Adopt the repaid state and proceed to release instead of re-repaying (which reverts).
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/Error\(Contract,\s*#?8\)|AlreadyClosed/i.test(msg)) {
+        current = await applyPatch(current, { status: "repaid" });
+      } else {
+        throw e;
+      }
+    }
   }
 
   // ── Steps 2+3: Prove then Release ──────────────────────────────────────────
