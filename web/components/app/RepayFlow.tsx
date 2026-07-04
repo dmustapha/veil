@@ -52,7 +52,9 @@ export function RepayFlow({ note, onRepaid }: { note: VeilNote; onRepaid: () => 
       onRepaid();
     } catch (e) {
       const raw = e instanceof Error ? e.message : "";
-      setOrphaned(/NO_POSITION/.test(raw));
+      // Both a missing position and a release-proof mismatch mean the note is stale (opened against an
+      // earlier deployment) — offer Discard so it can be cleared and replaced with a fresh run.
+      setOrphaned(/NO_POSITION|REPAID_TREE_MISMATCH|Assert Failed|Error in template|ReleaseRepaid/i.test(raw));
       setError(e instanceof Error ? friendly(e.message) : "The repay failed.");
       setStep(null);
     } finally {
@@ -117,6 +119,15 @@ export function RepayFlow({ note, onRepaid }: { note: VeilNote; onRepaid: () => 
 function friendly(msg: string): string {
   if (/NO_POSITION/.test(msg))
     return "No active loan found for this position in the current lending pool. It was likely opened against an earlier deployment. Discard this one and open a fresh position to repay.";
+  // The repaid tree is incremental and has no on-chain leaf history, so the release path is rebuilt from
+  // this device's own repaid notes. If some of this vault's repayments happened on another device or URL,
+  // the path can't be reconstructed here.
+  if (/REPAID_TREE_MISMATCH/.test(msg))
+    return "This position's repayment history was partly recorded on another device or URL, so its release proof can't be rebuilt here. Repay from the browser where the earlier positions were opened, or discard and run a fresh lock → borrow → repay.";
+  // A residual circuit constraint failure after path reconstruction points to a note whose secrets or
+  // tree position predate the current pool/circuits (opened against an earlier deployment).
+  if (/Assert Failed|Error in template|ReleaseRepaid|not canonical|pathElements must be depth/i.test(msg))
+    return "This position's release proof no longer matches the current pool. Discard it and run a fresh lock → borrow → repay to complete the round trip.";
   if (/Signing was rejected|user rejected|denied/i.test(msg)) return "You rejected the transaction.";
   if (/release not yet confirmed|still in flight|Axelar hop/i.test(msg))
     return "The release is submitted; the Ethereum side takes a few minutes. Reopen to resume.";

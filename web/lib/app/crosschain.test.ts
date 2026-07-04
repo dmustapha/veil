@@ -71,10 +71,13 @@ describe("parseGmpResponse", () => {
     expect(isExecutable(m)).toBe(false);
   });
 
-  it("flags insufficient gas as an error", () => {
+  it("flags insufficient gas as recoverable, not fatal", () => {
+    // Gas underfunding clears once the fee is topped up or re-estimated (common on testnet), so it must
+    // NOT be a fatal error that aborts the flow: status stays as reported, gasShort is set, error is null.
     const m = parseGmpResponse({ data: [{ status: "called", is_insufficient_fee: true, call: {} }] });
-    expect(m.status).toBe("error");
-    expect(m.error).toMatch(/gas/i);
+    expect(m.status).toBe("called");
+    expect(m.gasShort).toBe(true);
+    expect(m.error).toBeNull();
   });
 
   it("returns unknown for an empty result", () => {

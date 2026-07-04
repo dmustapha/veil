@@ -241,6 +241,25 @@ export async function repaidRoot(source: string): Promise<bigint> {
 }
 
 /**
+ * Read the vault's incremental repaid-tree leaf count (simulate-only). The just-repaid leaf sits at
+ * index `count - 1`; the release proof needs the real index + sibling path, not a hardcoded index 0.
+ */
+export async function repaidCount(source: string): Promise<number> {
+  const srv = server();
+  const account = await srv.getAccount(source);
+  const op = new Contract(VEIL_VAULT).call("repaid_count");
+  const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: TESTNET_PASSPHRASE })
+    .addOperation(op)
+    .setTimeout(60)
+    .build();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sim = (await srv.simulateTransaction(tx)) as any;
+  if (sim.error) throw new Error(`repaid_count simulation failed: ${sim.error}`);
+  if (!sim.result?.retval) throw new Error("repaid_count returned no value");
+  return Number(scValToNative(sim.result.retval));
+}
+
+/**
  * Read a position's current debt (principal + accrued interest) — simulate-only, no signing, no fee.
  * The frontend calls this immediately before `repay` to size `max_repay = debt + cushion`, so the
  * borrower→vault pull is a caller-fixed amount (stable across the Freighter sign delay).

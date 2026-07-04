@@ -18,13 +18,13 @@ import {
   approveWeth, isLocked, isReleased, lockCollateral, wethAllowance, wethBalance, wrapEth,
 } from "./eth";
 import { waitForAxelarApproval, fetchAxelarStatus, type AxelarMessage } from "./axelar";
-import { borrow, debtOf, execute, lockNote, poolLeafEvents, repaidRoot, repay, releaseRepaid } from "./stellar";
-import { updateNote, toLockNote, toBorrowNote, type VeilNote } from "./notes";
+import { borrow, debtOf, execute, lockNote, poolLeafEvents, repaidCount, repaidRoot, repay, releaseRepaid } from "./stellar";
+import { updateNote, loadNotes, toLockNote, toBorrowNote, type VeilNote } from "./notes";
 import { AXELAR_GAS_WEI, PUBLIC_THRESHOLD_WEI } from "@/lib/onchain";
 import { proveBorrow, proveDepositFromEth, proveLock, proveRelease, publicSignalsToBorrowArgs, publicSignalsToLockArgs, publicSignalsToReleaseArgs, toEvmProof } from "@/lib/prove/groth16";
 import { buildLockWitness } from "@/lib/prove/lock";
 import { buildBorrowWitness, BN254_R } from "@/lib/prove/witness";
-import { buildMerklePath, pathForCommitment, type MerklePath } from "@/lib/prove/tree";
+import { buildMerklePath, computeRoot, pathForCommitment, type MerklePath } from "@/lib/prove/tree";
 import { buildReleaseWitness } from "@/lib/prove/release";
 import { lockHandle, repaidLeaf, positionId as derivePositionId } from "@/lib/prove/notes";
 
@@ -298,15 +298,76 @@ export async function runBorrowPipeline(
  */
 const REPAY_CUSHION = 100_000n;
 
+/** All permutations of an array (only used for tiny leaf sets — bounded by MAX_RECON_LEAVES). */
+function permutations<T>(arr: T[]): T[][] {
+  if (arr.length <= 1) return [arr];
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i++) {
+    const rest = [...arr.slice(0, i), ...arr.slice(i + 1)];
+    for (const p of permutations(rest)) out.push([arr[i], ...p]);
+  }
+  return out;
+}
+
+const MAX_RECON_LEAVES = 8; // factorial cap for the repaid-tree ordering search
+
+/**
+ * Build the release proof's repaid-tree Merkle path for `note`'s just-inserted leaf. The vault's repaid
+ * tree is INCREMENTAL with no on-chain leaf history, so we reconstruct the ordered leaf set from THIS
+ * device's own repaid/released notes (single-user demo: those are all the leaves) and pick the ordering
+ * whose root matches the live on-chain `repaid_root`. That match is the correctness proof. Replaces the
+ * old hardcoded "index 0 in an empty tree" path, which only held for the FIRST repay on a vault and
+ * broke every repay after (repaid_count > 1 → wrong siblings → release proof fails).
+ */
+async function buildRepaidPath(note: VeilNote, xlmAddress: string): Promise<MerklePath> {
+  const onChainRoot = await repaidRoot(xlmAddress);
+  const count = await repaidCount(xlmAddress);
+  const myLeaf = repaidLeaf(lockHandle(BigInt(note.lockId)));
+
+  // Fast path: empty-or-first repay — our leaf is index 0 in an otherwise-empty tree.
+  if (count <= 1) {
+    const p = buildMerklePath([myLeaf], 0);
+    if (p.root !== onChainRoot) {
+      throw new Error("REPAID_TREE_MISMATCH: repaid root does not match a single-leaf tree — cannot build a valid release path.");
+    }
+    return { ...p, root: onChainRoot };
+  }
+
+  if (count > MAX_RECON_LEAVES) {
+    throw new Error(`REPAID_TREE_MISMATCH: repaid tree has ${count} leaves, beyond the client reconstruction limit.`);
+  }
+
+  // Reconstruct: gather this device's repaid leaves (repaid/released notes), find the ordering of all
+  // `count` leaves whose incremental root equals the on-chain root, then read our leaf's index from it.
+  const all = await loadNotes();
+  const others = all
+    .filter((n) => n.commitmentAvailable !== note.commitmentAvailable && (n.status === "repaid" || n.status === "released") && n.lockId)
+    .map((n) => repaidLeaf(lockHandle(BigInt(n.lockId))));
+
+  if (others.length + 1 !== count) {
+    throw new Error(`REPAID_TREE_MISMATCH: this device knows ${others.length + 1} of ${count} repaid leaves — the others were repaid elsewhere, so the release path cannot be reconstructed here.`);
+  }
+
+  for (const perm of permutations(others)) {
+    for (let pos = 0; pos < count; pos++) {
+      const ordered = [...perm.slice(0, pos), myLeaf, ...perm.slice(pos)];
+      if (computeRoot(ordered) === onChainRoot) {
+        const p = buildMerklePath(ordered, pos);
+        return { ...p, root: onChainRoot };
+      }
+    }
+  }
+  throw new Error("REPAID_TREE_MISMATCH: could not reconstruct a repaid-tree ordering matching the on-chain root.");
+}
+
 /**
  * Drive a `borrowed` note through loan repayment, the shielded release proof, the Axelar reverse hop,
  * and WETH recovery on Ethereum — returning the note in the `released` state. Fully resumable: each
  * step checks the live note status / on-chain state and skips work already done so a reload picks up
  * exactly where it left off.
  *
- * The repaid-tree path is derived analytically (our repay is always index 0 when starting from an
- * empty repaid tree; confirmed by matching ZERO_LEVELS[16] to the vault's empty repaid_root). The
- * on-chain `repaid_root` is read via a simulate call AFTER repay and used as the circuit's public root.
+ * The repaid-tree path is reconstructed from this device's repaid leaves and validated against the live
+ * on-chain `repaid_root` (see buildRepaidPath) — correct for any repaid_count, not just the first repay.
  */
 export async function runRepayPipeline(
   note: VeilNote,
@@ -349,14 +410,9 @@ export async function runRepayPipeline(
     );
     const poolPath = numToBig(poolPathRaw);
 
-    // Repaid-tree Merkle path. The vault starts from repaid_count==0, so our
-    // repay inserts the leaf at index 0. The path siblings are all ZERO_LEVELS.
-    const lh = lockHandle(BigInt(current.lockId));
-    const repaidLeafVal = repaidLeaf(lh);
-    const repaidPathRaw = buildMerklePath([repaidLeafVal], 0);
-    // Read the actual on-chain root AFTER repay — the circuit must prove against it.
-    const onChainRepaidRoot = await repaidRoot(xlmAddress);
-    const repaidPath = { ...numToBig(repaidPathRaw), root: onChainRepaidRoot };
+    // Repaid-tree Merkle path — reconstructed for our leaf's REAL index (not a hardcoded 0), validated
+    // against the live on-chain repaid_root. Correct for any repaid_count.
+    const repaidPath = numToBig(await buildRepaidPath(current, xlmAddress));
 
     // Recipient field: keccak256(<20-byte EVM address>) mod BN254_R.
     const recipientField = BigInt(keccak256(toBytes(ethAccount))) % BN254_R;
