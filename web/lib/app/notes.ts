@@ -207,6 +207,22 @@ export function lockVault(): void {
 }
 
 /**
+ * Wipe ALL local positions on this device: delete the encrypted notes blob and the salt, and drop the
+ * session key. On-chain state is untouched; this only clears what this browser has stored, so the user
+ * can start from a clean slate (e.g. after a vault redeploy makes prior positions unusable).
+ */
+export function clearAllNotes(): void {
+  // localStorage exposes removeItem; the in-memory fallback (SSR) has no persistence to clear.
+  if (typeof window !== "undefined" && window.localStorage) {
+    window.localStorage.removeItem(KEY);
+    window.localStorage.removeItem(SALT_KEY);
+  }
+  mem.delete(KEY);
+  mem.delete(SALT_KEY);
+  sessionKey = null;
+}
+
+/**
  * Derive and cache the session key from `passphrase`. If a store already exists, it must decrypt with
  * this passphrase — otherwise this throws "incorrect passphrase" (a fresh salt is minted on first use).
  */

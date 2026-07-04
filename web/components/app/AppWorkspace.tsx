@@ -7,7 +7,7 @@ import { WalletBar } from "./WalletBar";
 import { OpenPosition } from "./OpenPosition";
 import { NoteCard } from "./NoteCard";
 import { Notice } from "./ui";
-import { hasStoredNotes, isVaultUnlocked, loadNotes, unlockVault, type VeilNote } from "@/lib/app/notes";
+import { clearAllNotes, hasStoredNotes, isVaultUnlocked, loadNotes, unlockVault, type VeilNote } from "@/lib/app/notes";
 
 /**
  * Gate the workspace behind the note vault's passphrase. Notes are AES-GCM encrypted on this device
@@ -160,6 +160,23 @@ function Positions() {
                     <NoteCard key={n.commitmentAvailable} note={n} onChanged={reload} />
                   ))}
                 </div>
+              </div>
+            )}
+
+            {list.length > 0 && (
+              <div className="reset-row reveal">
+                <button
+                  className="reset-link"
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm("Clear all positions stored on this device? On-chain state is untouched; this only removes them from this browser.")) {
+                      clearAllNotes();
+                      window.location.reload();
+                    }
+                  }}
+                >
+                  Clear all local positions
+                </button>
               </div>
             )}
           </>

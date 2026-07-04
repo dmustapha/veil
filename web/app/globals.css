@@ -2009,6 +2009,29 @@ h2.app-h2,
     grid-template-columns: 1fr;
   }
 }
+/* subtle destructive control to wipe local positions */
+.reset-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 40px;
+}
+.reset-link {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-family: var(--font-body-stack);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: color 160ms var(--ease);
+}
+@media (hover: hover) {
+  .reset-link:hover {
+    color: var(--red);
+  }
+}
+
 /* completed round trips, set apart from the active positions */
 .history-block {
   margin-top: 48px;
