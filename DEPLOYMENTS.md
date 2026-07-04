@@ -472,3 +472,28 @@ as rollback until the live e2e proves green.**
   - `setDestination("stellar-2026-q1-2", P3)` tx `0x3e69f176bb6973251c00c472c8edca04064a61ea39c143ca0462033c0211b841`
 - **Invariant check:** `pnpm verify:triple` → 4/4 pins PASS (V3.veil_pool==P3, P3.vault_addr==V3, P3.eth_lock_addr==E4, E4.destinationContract==P3 + destinationChain stellar-2026-q1-2).
 - Web onchain.ts/constants.ts repoint → P3/V3/E4 + Vercel redeploy pending; **alias veilzk.vercel.app HELD on P2/V2/E3 until the live lock→borrow→repay→release e2e passes.**
+
+## FRESH-TRIPLE REDEPLOY (2026-07-04, P4/V4/E5) — admin `veil-spike`
+
+Reason: V3's incremental repaid tree accumulated leaves from cross-URL testing, and the client cannot
+reconstruct release paths for leaves it did not create (no on-chain leaf history). Because `set_vault`,
+`set_eth_lock`, and the vault's `veil_pool` are one-time/immutable, a clean repaid tree needs a fresh
+matched triple. Web repaid-path is now reconstructed from device-local leaves + validated against the
+live `repaid_root`, so on a fresh vault (empty tree) the first repay uses index 0 and every subsequent
+repay reconstructs from same-origin notes. P3/V3/E4 left LIVE untouched as rollback.
+
+- **veil-pool P4:** `CB6DH7PJOUKGFXD7QPYFJCHQF6HA7HEALXVCWK6I33RGWXOEQEKTELPW`
+  - constructor: admin veil-spike, token USDC_SAC `CBIELTK6…DAMA`, levels 16, lock `CA4XWFDN…`, unlock
+    `CBXNZD5E…`, seize `CBLRFQ6S…`, axelar_gateway `CB2JYOOZ…IQPIAYY3`, source_chain `ethereum-sepolia`,
+    release `CDH7TOPQ…` (same verifiers/gateway/source_chain as P3).
+  - `set_vault(V4)` tx `3b9ca3a19f5a4db829cdb0097c29eef0cae3c1f468fb5dc37183ab06dfe3811d`
+  - `set_eth_lock(0xBCceef356d803D191d8a6cf1cEB979C2DFbCda98)` tx `5073c578f70e030d288c3573bc2670251a47e27564b01d6b5b5db89d60118918`
+  - `set_axelar_outbound` SKIPPED (matches P3): reverse-hop gas is added manually via Axelarscan.
+- **veil-vault V4:** `CDYPPRKZN7CAKY7GMFEMLNMVLPVEI6JVNFKJKGZVZNYJFMHSGRH2HBZP`
+  - constructor: admin veil-spike, borrow_verifier `CBTSWUY5…`, veil_pool=P4, usdc `CBIELTK6…`, reflector
+    `CCYOZJCO…` Other(ETH), ltv 7000 / liq 8000 / min_threshold 100000000000 / term 500000 / rate 500.
+  - LP: `lp_deposit` 19 USDC (190000000) from veil-spike tx `93bcffb7fea61fe063cd8e879487cffa617eb5b1bd9a904a1cc8c848e08b118d` → total_assets 190000000.
+- **VeilEthLock E5 (Sepolia):** `0xBCceef356d803D191d8a6cf1cEB979C2DFbCda98` (deploy via DeployEthLock.s.sol; fresh DepositFromEthVerifier `0xf9e4d0e97348b7ABCb5B11eB4184fC8D8Ef71e9f`; WETH `0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14`, gateway `0xe432150cce91c13a887f7D836923d5597adD8E31`, gasService `0xbE406F0189A0B4cf3A05C286473D23791Dd44Cc6`)
+  - `setDestination("stellar-2026-q1-2", P4)` tx `0xd406de1c9dad7fc79f4c5b501ed6fc00f9b8a14667900fb9c6063143409774c2`
+- **Invariant check:** `pnpm verify:triple` → 4/4 pins PASS (V4.veil_pool==P4, P4.vault_addr==V4, P4.eth_lock_addr==E5, E5.destinationContract==P4 + destinationChain stellar-2026-q1-2).
+- Web onchain.ts/constants.ts repointed → P4/V4/E5; deployed + aliased veilzk.vercel.app + veilzk-preview.vercel.app.
