@@ -96,6 +96,19 @@ async function noteIsInPool(C: bigint): Promise<boolean> {
 }
 
 /**
+ * Confirm the note's leaf is in the pool, retrying to absorb Soroban RPC getEvents indexing lag. When
+ * Axelar's relayer wins the execute race, its leaf-insertion event can take a few seconds to index, so
+ * a single immediate check false-negatives. Polls a few times before giving up.
+ */
+async function confirmInPool(C: bigint, tries = 4, delayMs = 5000): Promise<boolean> {
+  for (let i = 0; i < tries; i++) {
+    if (await noteIsInPool(C)) return true;
+    if (i < tries - 1) await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return false;
+}
+
+/**
  * Drive a freshly-created note through the Ethereum collateral leg and the Axelar attestation into the
  * pool, returning the note in the `attested` state (its AVAILABLE commitment now a pool leaf). Wraps /
  * approves only what the live balances lack, and skips the lock / attest / execute if already done.
@@ -163,9 +176,15 @@ export async function runOpenPipeline(
         current = await applyPatch(current, { status: "attested", executeTx });
       } catch (err) {
         // Lost the race: Axelar's relayer executed the same message between our check and our call, so
-        // the gateway rejected ours (WasmVm/InvalidAction). If the leaf is now in the pool, that's success.
-        if (await noteIsInPool(C)) {
+        // the gateway rejected ours (WasmVm/InvalidAction). The relayer's leaf-insertion event can lag
+        // a few seconds in the RPC index, so confirm with a short poll before deciding. If it lands,
+        // that's success; if not yet, surface a CALM, resumable message (the note stays locked-eth and
+        // "Continue attestation" re-adopts it) instead of the raw HostError.
+        const spent = /InvalidAction|already|spent|nonce/i.test(err instanceof Error ? err.message : String(err));
+        if (await confirmInPool(C, spent ? 5 : 3)) {
           current = await applyPatch(current, { status: "attested" });
+        } else if (spent) {
+          throw new Error("ATTEST_PENDING: the cross-chain message was already delivered by Axelar and is finalizing on Stellar. Your collateral is locked and safe. Click Continue attestation in a moment to finish.");
         } else {
           throw err;
         }

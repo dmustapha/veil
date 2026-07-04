@@ -64,7 +64,12 @@ export function OpenPosition({ onCreated }: { onCreated: () => void }) {
       setDone(true);
       onCreated();
     } catch (e) {
-      setError(e instanceof Error ? friendly(e.message) : "Something went wrong.");
+      const raw = e instanceof Error ? e.message : "";
+      // ATTEST_PENDING is not a failure: the cross-chain message was delivered and is finalizing. Skip
+      // the red error and just surface the note card, whose calm "attesting / Continue" copy takes over.
+      if (!/ATTEST_PENDING/.test(raw)) {
+        setError(e instanceof Error ? friendly(e.message) : "Something went wrong.");
+      }
       setStep(null);
       onCreated(); // surface the partially-opened note as a card so the user can resume it
     } finally {
@@ -154,6 +159,7 @@ export function OpenPosition({ onCreated }: { onCreated: () => void }) {
 }
 
 function friendly(msg: string): string {
+  if (/ATTEST_PENDING/.test(msg)) return msg.replace(/^ATTEST_PENDING:\s*/, "");
   if (/user rejected|denied|rejected the request|Signing was rejected/i.test(msg)) return "You rejected the transaction.";
   if (/insufficient funds/i.test(msg)) return "Not enough Sepolia ETH for this amount plus gas.";
   if (/timed out waiting for Axelar/i.test(msg)) return "Axelar is still confirming — reopen this note shortly to finish.";
