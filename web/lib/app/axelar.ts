@@ -23,6 +23,10 @@ export interface AxelarMessage {
   sourceAddress: string | null;
   sourceChain: string | null;
   approveTxHash: string | null;
+  /** Destination (Stellar) execute tx hash — present once Axelar (its relayer OR our own call) has
+   *  executed the message into the pool. Lets the UI show the Attest tx even when the relayer wins
+   *  the execute race and we never sent our own execute. */
+  executeTxHash: string | null;
   /** RECOVERABLE gas underfunding (is_insufficient_fee / is_not_enough_gas). NOT fatal — Axelar can
    *  still deliver once the fee is topped up or re-estimated, which is common on testnet. */
   gasShort: boolean;
@@ -47,7 +51,7 @@ export function parseGmpResponse(json: unknown): AxelarMessage {
   const root = json as { data?: unknown[] } | unknown[];
   const list = Array.isArray(root) ? root : (root?.data ?? []);
   const e = (Array.isArray(list) ? list[0] : undefined) as Record<string, any> | undefined;
-  if (!e) return { status: "unknown", messageId: null, sourceAddress: null, sourceChain: null, approveTxHash: null, gasShort: false, messageUrl: null, error: null };
+  if (!e) return { status: "unknown", messageId: null, sourceAddress: null, sourceChain: null, approveTxHash: null, executeTxHash: null, gasShort: false, messageUrl: null, error: null };
 
   // FATAL: the message can never be delivered as-is → abort. RECOVERABLE (gas): underfunded, but Axelar
   // can still deliver once the fee is topped up / re-estimated (common on testnet), so we keep waiting
@@ -72,6 +76,7 @@ export function parseGmpResponse(json: unknown): AxelarMessage {
     sourceAddress: e.call?.returnValues?.sender ?? null,
     sourceChain: e.call?.chain ?? null,
     approveTxHash: e.approved?.transactionHash ?? null,
+    executeTxHash: e.executed?.transactionHash ?? null,
     gasShort,
     messageUrl: null,
     error: fatalFlags[0] ?? null,
@@ -109,7 +114,7 @@ export async function waitForAxelarApproval(
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const m = await fetchAxelarStatus(sourceTxHash).catch(
-      () => ({ status: "unknown" as const, messageId: null, sourceAddress: null, sourceChain: null, approveTxHash: null, gasShort: false, messageUrl: `https://testnet.axelarscan.io/gmp/${sourceTxHash}`, error: null }),
+      () => ({ status: "unknown" as const, messageId: null, sourceAddress: null, sourceChain: null, approveTxHash: null, executeTxHash: null, gasShort: false, messageUrl: `https://testnet.axelarscan.io/gmp/${sourceTxHash}`, error: null }),
     );
     opts.onUpdate?.(m);
     // Executability wins over a stale/transient error flag: once the message is approved on the

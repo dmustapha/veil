@@ -17,7 +17,7 @@ import { keccak256, parseEther, toBytes, type Hex } from "viem";
 import {
   approveWeth, isLocked, isReleased, lockCollateral, wethAllowance, wethBalance, wrapEth,
 } from "./eth";
-import { waitForAxelarApproval, type AxelarMessage } from "./axelar";
+import { waitForAxelarApproval, fetchAxelarStatus, type AxelarMessage } from "./axelar";
 import { borrow, debtOf, execute, lockNote, poolLeafEvents, repaidRoot, repay, releaseRepaid } from "./stellar";
 import { updateNote, toLockNote, toBorrowNote, type VeilNote } from "./notes";
 import { AXELAR_GAS_WEI, PUBLIC_THRESHOLD_WEI } from "@/lib/onchain";
@@ -109,6 +109,32 @@ async function confirmInPool(C: bigint, tries = 4, delayMs = 5000): Promise<bool
 }
 
 /**
+ * Best-effort: fetch the DESTINATION (Stellar) execute tx hash from Axelar's GMP API for a given lock
+ * tx, so the note's "Attest tx" can be shown even when Axelar's relayer (not our own execute call) won
+ * the race. Returns null on any error or if it hasn't been indexed yet — never throws, since this only
+ * enriches a proof link and must not block the flow.
+ */
+async function fetchAttestTx(lockTxEth: string): Promise<string | null> {
+  try {
+    const m = await fetchAxelarStatus(lockTxEth);
+    return m.executeTxHash ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Adopt an already-in-pool note as `attested`, backfilling the Stellar execute tx (for the Attest tx
+ *  proof row) if it isn't stored yet. Used on both relayer-won paths. */
+async function adoptAttested(note: VeilNote): Promise<VeilNote> {
+  const patch: Partial<VeilNote> = { status: "attested" };
+  if (!note.executeTx && note.lockTxEth) {
+    const tx = await fetchAttestTx(note.lockTxEth);
+    if (tx) patch.executeTx = tx;
+  }
+  return applyPatch(note, patch);
+}
+
+/**
  * Drive a freshly-created note through the Ethereum collateral leg and the Axelar attestation into the
  * pool, returning the note in the `attested` state (its AVAILABLE commitment now a pool leaf). Wraps /
  * approves only what the live balances lack, and skips the lock / attest / execute if already done.
@@ -161,7 +187,7 @@ export async function runOpenPipeline(
     // adopt it and skip the wait + our own execute (which would be a rejected duplicate). Also the
     // correct resume path after a prior execute that landed on-chain but never got persisted.
     if (await noteIsInPool(C)) {
-      current = await applyPatch(current, { status: "attested" });
+      current = await adoptAttested(current);
     } else {
       onStep("attest");
       const msg = await waitForAxelarApproval(current.lockTxEth, {
@@ -182,7 +208,7 @@ export async function runOpenPipeline(
         // "Continue attestation" re-adopts it) instead of the raw HostError.
         const spent = /InvalidAction|already|spent|nonce/i.test(err instanceof Error ? err.message : String(err));
         if (await confirmInPool(C, spent ? 5 : 3)) {
-          current = await applyPatch(current, { status: "attested" });
+          current = await adoptAttested(current);
         } else if (spent) {
           throw new Error("ATTEST_PENDING: the cross-chain message was already delivered by Axelar and is finalizing on Stellar. Your collateral is locked and safe. Click Continue attestation in a moment to finish.");
         } else {
@@ -207,6 +233,13 @@ export async function runBorrowPipeline(
 ): Promise<VeilNote> {
   const { xlmAddress } = deps;
   let current = note;
+
+  // Backfill the Stellar attest tx (proof row) if the relayer executed the deposit and we never stored
+  // it — best-effort, so a position attested via the relayer still shows its Attest tx before borrow.
+  if (current.status === "attested" && !current.executeTx && current.lockTxEth) {
+    const tx = await fetchAttestTx(current.lockTxEth);
+    if (tx) current = await applyPatch(current, { executeTx: tx });
+  }
 
   // Lock the AVAILABLE note → mint the LOCKED note (only if not already locked).
   if (current.status === "attested") {
