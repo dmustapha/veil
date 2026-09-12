@@ -39,6 +39,7 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
+  other: { "ory-verify": "orynth-5a49409c5276480c9c9a486f2d4346f7" },
   title: "Veil: borrow USDC, keep your balance hidden",
   description:
     "Borrow USDC on Stellar against crypto you keep on Ethereum. A zero-knowledge proof shows you have enough without revealing how much or which wallet.",
